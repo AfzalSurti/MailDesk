@@ -31,5 +31,5 @@ CREATE TABLE categories (
 INSERT INTO users (email, hashed_password)
 VALUES (
     'admin@company.com',
-    '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW'
+    '$2b$12$X8M6J1c7fxMcC3JJXvAJP.POuId25Tt9LY5BiwKtyoGDtq8Pmumpm'
 );
