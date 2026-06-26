@@ -1,71 +1,121 @@
-import email
 import imaplib
+import email
 from email.header import decode_header
+import re
+from typing import List, Dict
+from app.accounts.service import decrypt_password
 
 
-def _decode_header_value(value: str | None) -> str:
+def clean_text(text: str) -> str:
+    if not text:
+        return ""
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+
+def decode_mime_header(value: str) -> str:
     if not value:
         return ""
-    parts = decode_header(value)
-    decoded = []
-    for part, charset in parts:
+    decoded_parts = decode_header(value)
+    result = ""
+    for part, charset in decoded_parts:
         if isinstance(part, bytes):
-            decoded.append(part.decode(charset or "utf-8", errors="replace"))
+            result += part.decode(charset or "utf-8", errors="ignore")
         else:
-            decoded.append(part)
-    return "".join(decoded)
+            result += part
+    return result
 
 
-def fetch_recent_emails(
-    email_address: str,
-    app_password: str,
-    limit: int = 10,
-    mailbox: str = "INBOX",
-) -> list[dict]:
+def get_email_body(msg) -> str:
+    body = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            disposition = str(part.get("Content-Disposition", ""))
+            if content_type == "text/plain" and "attachment" not in disposition:
+                try:
+                    body = part.get_payload(decode=True).decode(
+                        part.get_content_charset() or "utf-8", errors="ignore"
+                    )
+                    break
+                except Exception:
+                    continue
+        # fallback to HTML if no plain text
+        if not body:
+            for part in msg.walk():
+                if part.get_content_type() == "text/html":
+                    try:
+                        html = part.get_payload(decode=True).decode(
+                            part.get_content_charset() or "utf-8", errors="ignore"
+                        )
+                        # Strip HTML tags
+                        body = re.sub(r'<[^>]+>', ' ', html)
+                        break
+                    except Exception:
+                        continue
+    else:
+        try:
+            body = msg.get_payload(decode=True).decode(
+                msg.get_content_charset() or "utf-8", errors="ignore"
+            )
+        except Exception:
+            body = ""
+
+    return clean_text(body)
+
+
+def fetch_emails(email_address: str, encrypted_password: str, limit: int = 50) -> List[Dict]:
+    app_password = decrypt_password(encrypted_password)
+    
     mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
-    try:
-        mail.login(email_address, app_password)
-        mail.select(mailbox)
+    mail.login(email_address, app_password)
+    mail.select("INBOX")
 
-        _, data = mail.search(None, "ALL")
-        message_ids = data[0].split()
-        recent_ids = message_ids[-limit:] if message_ids else []
+    # Fetch latest emails
+    _, message_ids = mail.search(None, "ALL")
+    all_ids = message_ids[0].split()
+    
+    # Take last `limit` emails (most recent)
+    selected_ids = all_ids[-limit:] if len(all_ids) > limit else all_ids
+    selected_ids = list(reversed(selected_ids))  # newest first
 
-        emails = []
-        for msg_id in reversed(recent_ids):
-            _, msg_data = mail.fetch(msg_id, "(RFC822)")
-            if not msg_data or not msg_data[0]:
-                continue
-
+    emails = []
+    for uid in selected_ids:
+        try:
+            _, msg_data = mail.fetch(uid, "(RFC822)")
             raw = msg_data[0][1]
             msg = email.message_from_bytes(raw)
 
-            body = ""
-            if msg.is_multipart():
-                for part in msg.walk():
-                    if part.get_content_type() == "text/plain" and not part.get_filename():
-                        payload = part.get_payload(decode=True)
-                        if payload:
-                            body = payload.decode(errors="replace")
-                            break
-            else:
-                payload = msg.get_payload(decode=True)
-                if payload:
-                    body = payload.decode(errors="replace")
+            subject = decode_mime_header(msg.get("Subject", "(No Subject)"))
+            sender = decode_mime_header(msg.get("From", ""))
+            date = msg.get("Date", "")
+            body = get_email_body(msg)
 
-            emails.append(
-                {
-                    "id": msg_id.decode(),
-                    "from": _decode_header_value(msg.get("From")),
-                    "subject": _decode_header_value(msg.get("Subject")),
-                    "date": _decode_header_value(msg.get("Date")),
-                    "body_preview": body[:500],
-                }
-            )
-
-        return emails
-    finally:
-        try:
-            mail.logout()
+            emails.append({
+                "uid": uid.decode(),
+                "subject": subject,
+                "sender": sender,
+                "date": date,
+                "body_preview": body[:500]
+            })
         except Exception:
-            pass
+            continue
+
+    mail.logout()
+    return emails
+
+
+def delete_email(email_address: str, encrypted_password: str, uid: str) -> bool:
+    try:
+        app_password = decrypt_password(encrypted_password)
+        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        mail.login(email_address, app_password)
+        mail.select("INBOX")
+
+        mail.store(uid, '+FLAGS', '\\Deleted')
+        mail.expunge()
+        mail.logout()
+        return True
+    except Exception:
+        return False
