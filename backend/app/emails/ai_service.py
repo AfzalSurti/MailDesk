@@ -1,46 +1,85 @@
 import httpx
-
+import json
+from typing import List, Dict
 from app.config import settings
 
+# In-memory cache: key = (account_id, uid), value = classification result
+_cache: dict = {}
 
-async def categorize_email(
+
+async def classify_email(
     subject: str,
-    body: str,
-    categories: list[dict],
-) -> dict | None:
-    if not categories:
-        return None
+    sender: str,
+    body_preview: str,
+    categories: List[Dict],
+    account_id: str,
+    uid: str
+) -> Dict:
+    # Check cache first
+    cache_key = (account_id, uid)
+    if cache_key in _cache:
+        return _cache[cache_key]
 
-    category_list = "\n".join(
-        f"- {c['name']}: {c.get('description') or 'No description'}"
+    categories_json = json.dumps([
+        {
+            "id": str(c["id"]),
+            "name": c["name"],
+            "priority": c["priority"],
+            "description": c["description"],
+            "keywords": c["keywords"]
+        }
         for c in categories
-    )
+    ])
 
-    prompt = (
-        "Classify this email into exactly one category from the list below.\n"
-        f"Categories:\n{category_list}\n\n"
-        f"Subject: {subject}\n"
-        f"Body: {body[:1000]}\n\n"
-        "Reply with only the category name."
-    )
+    system_prompt = """You are an email classifier for a company.
+You will be given an email and a list of categories with their descriptions and priorities.
+Classify the email into exactly one category.
+Return ONLY a valid JSON object with these exact keys:
+{ "category_id": "uuid", "category_name": "string", "priority": "high|medium|low", "confidence_score": 0.0-1.0 }
+No explanation, no markdown, no extra text. Just raw JSON."""
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            f"{settings.OPENROUTER_BASE_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "openai/gpt-4o-mini",
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
-        response.raise_for_status()
-        category_name = response.json()["choices"][0]["message"]["content"].strip()
+    user_prompt = f"""Categories:
+{categories_json}
 
-    for category in categories:
-        if category["name"].lower() == category_name.lower():
-            return category
+Email Subject: {subject}
+Email From: {sender}
+Email Body (preview): {body_preview}
 
-    return {"name": category_name, "matched": False}
+Classify this email into one of the categories above."""
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                f"{settings.OPENROUTER_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "mistralai/mistral-7b-instruct",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "max_tokens": 150
+                }
+            )
+            data = response.json()
+            raw = data["choices"][0]["message"]["content"].strip()
+            # Strip markdown fences if present
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            result = json.loads(raw)
+
+            _cache[cache_key] = result
+            return result
+
+    except Exception:
+        # Fallback if AI fails
+        fallback = {
+            "category_id": None,
+            "category_name": "Uncategorized",
+            "priority": "low",
+            "confidence_score": 0.0
+        }
+        _cache[cache_key] = fallback
+        return fallback
