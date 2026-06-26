@@ -5,12 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 
 from app.accounts.models import GmailAccount
-from app.accounts.service import decrypt_password
 from app.auth.utils import get_current_user
 from app.categories.models import Category
 from app.database import get_db
-from app.emails.ai_service import categorize_email
-from app.emails.imap_service import fetch_recent_emails
+from app.emails.ai_service import classify_email
+from app.emails.imap_service import fetch_emails
 
 router = APIRouter()
 
@@ -33,10 +32,24 @@ class SyncResponse(BaseModel):
 class CategorizeRequest(BaseModel):
     subject: str
     body: str
+    sender: str = ""
 
 
 class CategorizeResponse(BaseModel):
     category: dict | None
+
+
+def _to_email_items(raw_emails: list[dict]) -> list[EmailItem]:
+    return [
+        EmailItem(
+            id=e["uid"],
+            from_address=e["sender"],
+            subject=e["subject"],
+            date=e["date"],
+            body_preview=e["body_preview"],
+        )
+        for e in raw_emails
+    ]
 
 
 @router.get("/sync", response_model=list[SyncResponse])
@@ -56,23 +69,13 @@ async def sync_all_accounts(
 
     responses = []
     for account in accounts:
-        password = decrypt_password(account.app_password)
-        emails = fetch_recent_emails(account.email_address, password, limit=limit)
+        emails = fetch_emails(account.email_address, account.app_password, limit=limit)
         responses.append(
             SyncResponse(
                 account_id=account.id,
                 email_address=account.email_address,
                 count=len(emails),
-                emails=[
-                    EmailItem(
-                        id=e["id"],
-                        from_address=e["from"],
-                        subject=e["subject"],
-                        date=e["date"],
-                        body_preview=e["body_preview"],
-                    )
-                    for e in emails
-                ],
+                emails=_to_email_items(emails),
             )
         )
 
@@ -93,23 +96,13 @@ async def fetch_account_emails(
     if not account:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
 
-    password = decrypt_password(account.app_password)
-    emails = fetch_recent_emails(account.email_address, password, limit=limit)
+    emails = fetch_emails(account.email_address, account.app_password, limit=limit)
 
     return SyncResponse(
         account_id=account.id,
         email_address=account.email_address,
         count=len(emails),
-        emails=[
-            EmailItem(
-                id=e["id"],
-                from_address=e["from"],
-                subject=e["subject"],
-                date=e["date"],
-                body_preview=e["body_preview"],
-            )
-            for e in emails
-        ],
+        emails=_to_email_items(emails),
     )
 
 
@@ -124,6 +117,7 @@ async def categorize_email_endpoint(
 
     category_payload = [
         {
+            "id": c.id,
             "name": c.name,
             "description": c.description,
             "priority": c.priority.value,
@@ -138,5 +132,12 @@ async def categorize_email_endpoint(
             detail="No categories configured. Add categories first.",
         )
 
-    matched = await categorize_email(body.subject, body.body, category_payload)
+    matched = await classify_email(
+        subject=body.subject,
+        sender=body.sender,
+        body_preview=body.body[:500],
+        categories=category_payload,
+        account_id="manual",
+        uid="manual-categorize",
+    )
     return CategorizeResponse(category=matched)
