@@ -60,7 +60,7 @@ export default function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleLogin()}
               placeholder="admin@company.com"
-              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+              className="input-field"
             />
           </div>
           <div>
@@ -71,13 +71,13 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleLogin()}
               placeholder="••••••••"
-              className="w-full px-4 py-2.5 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+              className="input-field"
             />
           </div>
           <button
             onClick={handleLogin}
             disabled={loading}
-            className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-2.5 rounded-lg text-sm transition-colors disabled:opacity-60"
+            className="btn-primary w-full font-semibold py-2.5"
           >
             {loading ? "Signing in..." : "Sign In"}
           </button>

@@ -43,24 +43,24 @@ export default function SettingsModal({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Settings</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+    <div className="modal-overlay">
+      <div className="modal-panel">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-lg font-semibold text-ink">Settings</h2>
+          <button type="button" onClick={onClose} className="text-muted hover:text-ink p-1">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
           <form onSubmit={addAccount} className="space-y-3">
-            <p className="text-sm font-medium text-gray-700">Add Gmail Account</p>
+            <p className="text-sm font-medium text-ink">Add Gmail Account</p>
             <input
               type="email"
               placeholder="email@gmail.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              className="input-field"
               required
             />
             <input
@@ -68,7 +68,7 @@ export default function SettingsModal({ onClose }) {
               placeholder="App password"
               value={appPassword}
               onChange={(e) => setAppPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              className="input-field"
               required
             />
             <input
@@ -76,29 +76,26 @@ export default function SettingsModal({ onClose }) {
               placeholder="Display name (optional)"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              className="input-field"
             />
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-accent text-white py-2 rounded-lg text-sm disabled:opacity-60"
-            >
+            <button type="submit" disabled={loading} className="btn-primary w-full">
               {loading ? "Adding..." : "Add Account"}
             </button>
           </form>
 
           {accounts.length > 0 && (
             <div className="space-y-2">
-              <p className="text-sm font-medium text-gray-700">Connected Accounts</p>
+              <p className="text-sm font-medium text-ink">Connected Accounts</p>
               {accounts.map((acc) => (
                 <div
                   key={acc.id}
-                  className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg"
+                  className="flex items-center justify-between px-3 py-2.5 bg-surface rounded-lg border border-border"
                 >
-                  <span className="text-sm text-gray-700 truncate">{acc.email_address}</span>
+                  <span className="text-sm text-ink truncate">{acc.email_address}</span>
                   <button
+                    type="button"
                     onClick={() => deleteAccount(acc.id)}
-                    className="text-xs text-red-500 hover:text-red-700 ml-2 shrink-0"
+                    className="text-xs text-red-600 hover:text-red-700 ml-2 shrink-0 font-medium"
                   >
                     Remove
                   </button>

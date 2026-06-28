@@ -1,8 +1,8 @@
-import { LogOut, Settings, Home } from "lucide-react";
+import { LogOut, Settings, Home, Inbox } from "lucide-react";
 import useStore from "../store/useStore";
 import { Link, useNavigate } from "react-router-dom";
 
-export default function Sidebar({ onSettingsOpen }) {
+export default function Sidebar({ open, onClose, onSettingsOpen }) {
   const { accounts, selectedAccount, setSelectedAccount, logout } = useStore();
   const navigate = useNavigate();
 
@@ -11,15 +11,21 @@ export default function Sidebar({ onSettingsOpen }) {
     navigate("/login");
   };
 
+  const pickAccount = (account) => {
+    setSelectedAccount(account);
+    onClose();
+  };
+
   return (
-    <div className="w-72 min-h-screen bg-sidebar flex flex-col">
+    <aside
+      className={`fixed md:static inset-y-0 left-0 z-50 w-72 bg-sidebar flex flex-col shrink-0 transform transition-transform duration-200 ease-out ${
+        open ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+      }`}
+    >
       <div className="px-6 py-5 border-b border-white/10">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
+            <Inbox className="w-4 h-4 text-white" />
           </div>
           <span className="text-white font-bold text-lg">MailDesk</span>
         </div>
@@ -30,14 +36,16 @@ export default function Sidebar({ onSettingsOpen }) {
           Accounts ({accounts.length})
         </p>
         {accounts.length === 0 && (
-          <p className="text-white/30 text-sm px-6 mt-4">No accounts added yet</p>
+          <p className="text-white/30 text-sm px-6 mt-2 leading-relaxed">
+            No accounts yet. Open Settings to add Gmail.
+          </p>
         )}
         {accounts.map((acc) => {
           const isActive = selectedAccount?.id === acc.id;
           return (
             <button
               key={acc.id}
-              onClick={() => setSelectedAccount(acc)}
+              onClick={() => pickAccount(acc)}
               className={`w-full text-left px-6 py-3 transition-colors ${
                 isActive
                   ? "bg-white/10 border-l-2 border-accent"
@@ -58,13 +66,17 @@ export default function Sidebar({ onSettingsOpen }) {
       <div className="border-t border-white/10 p-4 space-y-1">
         <Link
           to="/"
+          onClick={onClose}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 text-sm"
         >
           <Home className="w-4 h-4" />
           Home
         </Link>
         <button
-          onClick={onSettingsOpen}
+          onClick={() => {
+            onSettingsOpen();
+            onClose();
+          }}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 text-sm"
         >
           <Settings className="w-4 h-4" />
@@ -78,6 +90,6 @@ export default function Sidebar({ onSettingsOpen }) {
           Logout
         </button>
       </div>
-    </div>
+    </aside>
   );
 }

@@ -6,6 +6,12 @@ import useStore from "../store/useStore";
 
 const PRIORITIES = ["high", "medium", "low"];
 
+const priorityColor = {
+  high: "bg-red-100 text-red-700",
+  medium: "bg-amber-100 text-amber-800",
+  low: "bg-emerald-100 text-emerald-800",
+};
+
 export default function CategoryModal({ onClose }) {
   const { categories, setCategories } = useStore();
   const [name, setName] = useState("");
@@ -49,32 +55,34 @@ export default function CategoryModal({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 sticky top-0 bg-white">
-          <h2 className="text-lg font-semibold text-gray-900">Manage Categories</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+    <div className="modal-overlay">
+      <div className="modal-panel max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+          <h2 className="text-lg font-semibold text-ink">Manage Categories</h2>
+          <button type="button" onClick={onClose} className="text-muted hover:text-ink p-1">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-6 overflow-y-auto">
           <form onSubmit={addCategory} className="space-y-3">
             <input
               type="text"
               placeholder="Category name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              className="input-field"
               required
             />
             <select
               value={priority}
               onChange={(e) => setPriority(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              className="input-field"
             >
               {PRIORITIES.map((p) => (
-                <option key={p} value={p}>{p}</option>
+                <option key={p} value={p}>
+                  {p}
+                </option>
               ))}
             </select>
             <input
@@ -82,39 +90,42 @@ export default function CategoryModal({ onClose }) {
               placeholder="Description (optional)"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              className="input-field"
             />
             <input
               type="text"
               placeholder="Keywords (comma separated)"
               value={keywords}
               onChange={(e) => setKeywords(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              className="input-field"
             />
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-accent text-white py-2 rounded-lg text-sm disabled:opacity-60"
-            >
+            <button type="submit" disabled={loading} className="btn-primary w-full">
               {loading ? "Creating..." : "Add Category"}
             </button>
           </form>
 
           {categories.length > 0 && (
             <div className="space-y-2">
-              <p className="text-sm font-medium text-gray-700">Existing Categories</p>
+              <p className="text-sm font-medium text-ink">Existing Categories</p>
               {categories.map((cat) => (
                 <div
                   key={cat.id}
-                  className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg"
+                  className="flex items-center justify-between px-3 py-2.5 bg-surface rounded-lg border border-border"
                 >
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">{cat.name}</p>
-                    <p className="text-xs text-gray-400 capitalize">{cat.priority}</p>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink truncate">{cat.name}</p>
+                    <span
+                      className={`inline-block text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded mt-1 ${
+                        priorityColor[cat.priority] || priorityColor.low
+                      }`}
+                    >
+                      {cat.priority}
+                    </span>
                   </div>
                   <button
+                    type="button"
                     onClick={() => deleteCategory(cat.id)}
-                    className="text-xs text-red-500 hover:text-red-700 ml-2 shrink-0"
+                    className="text-xs text-red-600 hover:text-red-700 ml-2 shrink-0 font-medium"
                   >
                     Delete
                   </button>
