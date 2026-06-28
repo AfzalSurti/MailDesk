@@ -3,12 +3,13 @@ import useStore from "../store/useStore";
 import api from "../lib/axios";
 import Sidebar from "../components/Sidebar";
 import EmailList from "../components/EmailList";
+import EmailDetail from "../components/EmailDetail";
 import SettingsModal from "../components/SettingsModal";
 import CategoryModal from "../components/CategoryModal";
 import toast from "react-hot-toast";
 
 export default function DashboardPage() {
-  const { setAccounts, setCategories, selectedAccount, setEmails, setEmailsLoading } = useStore();
+  const { setAccounts, setCategories, selectedAccount, setEmails, setEmailsLoading, setSelectedEmail } = useStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
 
@@ -30,6 +31,7 @@ export default function DashboardPage() {
 
   const fetchEmails = async () => {
     if (!selectedAccount) return;
+    setSelectedEmail(null);
     setEmailsLoading(true);
     try {
       const res = await api.get(`/emails/${selectedAccount.id}`);
@@ -77,7 +79,10 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <EmailList onRefresh={fetchEmails} />
+        <div className="flex-1 flex overflow-hidden bg-surface">
+          <EmailList onRefresh={fetchEmails} />
+          <EmailDetail />
+        </div>
       </div>
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}

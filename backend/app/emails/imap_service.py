@@ -97,7 +97,8 @@ def fetch_emails(email_address: str, encrypted_password: str, limit: int = 50) -
                 "subject": subject,
                 "sender": sender,
                 "date": date,
-                "body_preview": body[:500]
+                "body_preview": body[:500],
+                "body": body,
             })
         except Exception:
             continue

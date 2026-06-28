@@ -9,14 +9,15 @@ const useStore = create((set) => ({
   },
   logout: () => {
     localStorage.removeItem("token");
-    set({ token: null, selectedAccount: null, emails: [] });
+    set({ token: null, selectedAccount: null, emails: [], selectedEmail: null });
   },
 
   // Accounts
   accounts: [],
   setAccounts: (accounts) => set({ accounts }),
   selectedAccount: null,
-  setSelectedAccount: (account) => set({ selectedAccount: account, emails: [] }),
+  setSelectedAccount: (account) =>
+    set({ selectedAccount: account, emails: [], selectedEmail: null }),
 
   // Categories
   categories: [],
@@ -25,6 +26,8 @@ const useStore = create((set) => ({
   // Emails
   emails: [],
   setEmails: (emails) => set({ emails }),
+  selectedEmail: null,
+  setSelectedEmail: (email) => set({ selectedEmail: email }),
   emailsLoading: false,
   setEmailsLoading: (val) => set({ emailsLoading: val }),
 }));

@@ -20,6 +20,7 @@ class EmailItem(BaseModel):
     subject: str
     date: str
     body_preview: str
+    body: str
 
 
 class SyncResponse(BaseModel):
@@ -47,6 +48,7 @@ def _to_email_items(raw_emails: list[dict]) -> list[EmailItem]:
             subject=e["subject"],
             date=e["date"],
             body_preview=e["body_preview"],
+            body=e["body"],
         )
         for e in raw_emails
     ]
