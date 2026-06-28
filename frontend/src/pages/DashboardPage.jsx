@@ -46,9 +46,9 @@ export default function DashboardPage() {
       <Sidebar onSettingsOpen={() => setSettingsOpen(true)} />
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div className="bg-card border-b border-border px-6 py-4 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 className="text-lg font-semibold text-ink">
               {selectedAccount
                 ? selectedAccount.display_name || selectedAccount.email_address
                 : "Select an account"}
@@ -62,14 +62,14 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setCategoryOpen(true)}
-              className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="px-4 py-2 text-sm font-medium text-ink border border-border rounded-lg hover:bg-surface"
             >
               Manage Categories
             </button>
             {selectedAccount && (
               <button
                 onClick={fetchEmails}
-                className="px-4 py-2 text-sm font-medium text-white bg-accent rounded-lg hover:bg-blue-600"
+                className="px-4 py-2 text-sm font-medium text-white bg-accent rounded-lg hover:bg-accent-hover"
               >
                 Fetch Emails
               </button>

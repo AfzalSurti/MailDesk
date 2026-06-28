@@ -26,7 +26,7 @@ export default function LoginPage() {
       });
       setToken(res.data.access_token);
       toast.success("Welcome back!");
-      navigate("/");
+      navigate("/dashboard");
     } catch (err) {
       toast.error(err.response?.data?.detail || "Login failed");
     } finally {
@@ -35,8 +35,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-10 w-full max-w-md">
+    <div className="min-h-screen bg-surface flex items-center justify-center px-4">
+      <div className="bg-card rounded-2xl shadow-sm border border-border p-10 w-full max-w-md">
         <div className="mb-8 text-center">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-accent mb-4">
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -44,8 +44,8 @@ export default function LoginPage() {
                 d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">MailDesk</h1>
-          <p className="text-gray-500 text-sm mt-1">Sign in to your workspace</p>
+          <h1 className="text-2xl font-bold text-ink">MailDesk</h1>
+          <p className="text-muted text-sm mt-1">Sign in to your workspace</p>
         </div>
 
         <div className="space-y-4">
@@ -74,7 +74,7 @@ export default function LoginPage() {
           <button
             onClick={handleLogin}
             disabled={loading}
-            className="w-full bg-accent hover:bg-blue-600 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors disabled:opacity-60"
+            className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-2.5 rounded-lg text-sm transition-colors disabled:opacity-60"
           >
             {loading ? "Signing in..." : "Sign In"}
           </button>

@@ -41,7 +41,7 @@ export default function EmailList({ onRefresh }) {
       {emails.map((email) => (
         <div
           key={email.id}
-          className="bg-white border border-gray-200 rounded-xl p-4 hover:border-accent/40 transition-colors"
+          className="bg-card border border-border rounded-xl p-4 hover:border-accent/50 transition-colors cursor-pointer"
         >
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
