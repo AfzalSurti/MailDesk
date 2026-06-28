@@ -1,56 +1,64 @@
-import { Mail, RefreshCw } from "lucide-react";
+import { Inbox, Mail, RefreshCw } from "lucide-react";
 import useStore from "../store/useStore";
 import { stripHtml } from "../utils/stripHtml";
+import { formatEmailDate } from "../utils/format";
+import EmptyState from "./ui/EmptyState";
 
-const listWidth = "w-full md:w-[340px] lg:w-[380px] shrink-0";
+const LIST_WIDTH = "w-full md:w-[340px] lg:w-[380px] shrink-0";
 
-function EmptyPanel({ children }) {
+function ListShell({ children, className = "" }) {
   return (
-    <div className={`${listWidth} flex flex-col items-center justify-center text-muted border-r border-border bg-surface p-6 text-center`}>
+    <div className={`${LIST_WIDTH} border-r border-border bg-surface flex flex-col ${className}`}>
       {children}
     </div>
   );
 }
 
-export default function EmailList({ onRefresh }) {
+export default function EmailList({ onRefresh, onOpenSettings }) {
   const { emails, emailsLoading, selectedAccount, selectedEmail, setSelectedEmail } = useStore();
 
-  const panelClass = `${listWidth} border-r border-border bg-surface ${
-    selectedEmail ? "hidden md:flex md:flex-col" : "flex flex-col"
-  }`;
+  const hiddenOnMobile = selectedEmail ? "hidden md:flex" : "flex";
 
   if (!selectedAccount) {
     return (
-      <EmptyPanel>
-        <p className="text-sm">Select a Gmail account from the sidebar</p>
-      </EmptyPanel>
+      <ListShell className="items-center justify-center">
+        <EmptyState
+          icon={Inbox}
+          title="No account selected"
+          description="Pick a Gmail account from the sidebar to view its inbox."
+        />
+      </ListShell>
     );
   }
 
   if (emailsLoading) {
     return (
-      <div className={`${panelClass} items-center justify-center text-muted text-sm min-h-0`}>
-        <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-        Fetching emails...
-      </div>
+      <ListShell className={`${hiddenOnMobile} items-center justify-center min-h-0`}>
+        <div className="flex items-center gap-2 text-muted text-sm">
+          <RefreshCw className="w-5 h-5 animate-spin" />
+          Loading emails...
+        </div>
+      </ListShell>
     );
   }
 
   if (emails.length === 0) {
     return (
-      <EmptyPanel>
-        <Mail className="w-10 h-10 mb-3 opacity-30" />
-        <p className="text-sm">No emails saved yet</p>
-        <button type="button" onClick={onRefresh} className="btn-primary mt-4">
-          Sync from Gmail
-        </button>
-      </EmptyPanel>
+      <ListShell className={`${hiddenOnMobile} items-center justify-center`}>
+        <EmptyState
+          icon={Mail}
+          title="Inbox is empty"
+          description="Sync from Gmail to pull emails from the last 3 days."
+          actionLabel="Sync from Gmail"
+          onAction={onRefresh}
+        />
+      </ListShell>
     );
   }
 
   return (
-    <div className={`${panelClass} overflow-hidden min-h-0`}>
-      <div className="px-4 py-3 border-b border-border bg-card/50">
+    <ListShell className={`${hiddenOnMobile} overflow-hidden min-h-0`}>
+      <div className="px-4 py-3 border-b border-border bg-card/60">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted">
           Inbox · {emails.length}
         </p>
@@ -82,7 +90,7 @@ export default function EmailList({ onRefresh }) {
                 </div>
                 {email.date && (
                   <span className="text-[10px] text-muted/70 whitespace-nowrap shrink-0 pt-0.5">
-                    {email.date.split(",")[0]}
+                    {formatEmailDate(email.date)}
                   </span>
                 )}
               </div>
@@ -90,6 +98,6 @@ export default function EmailList({ onRefresh }) {
           );
         })}
       </div>
-    </div>
+    </ListShell>
   );
 }

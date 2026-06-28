@@ -1,16 +1,11 @@
 import { useState } from "react";
-import { X } from "lucide-react";
+import { Tag, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../lib/axios";
 import useStore from "../store/useStore";
-
-const PRIORITIES = ["high", "medium", "low"];
-
-const priorityColor = {
-  high: "bg-red-100 text-red-700",
-  medium: "bg-amber-100 text-amber-800",
-  low: "bg-emerald-100 text-emerald-800",
-};
+import Modal from "./ui/Modal";
+import EmptyState from "./ui/EmptyState";
+import { PRIORITIES, PRIORITY_COLORS } from "../constants/categories";
 
 export default function CategoryModal({ onClose }) {
   const { categories, setCategories } = useStore();
@@ -55,68 +50,88 @@ export default function CategoryModal({ onClose }) {
   };
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-panel max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-          <h2 className="text-lg font-semibold text-ink">Manage Categories</h2>
-          <button type="button" onClick={onClose} className="text-muted hover:text-ink p-1">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-6 overflow-y-auto">
+    <Modal title="Manage Categories" onClose={onClose}>
+      <div className="space-y-8">
+        <section>
+          <h3 className="text-sm font-semibold text-ink mb-1">New Category</h3>
+          <p className="text-xs text-muted mb-4">
+            Categories help AI sort incoming emails by type and priority.
+          </p>
           <form onSubmit={addCategory} className="space-y-3">
-            <input
-              type="text"
-              placeholder="Category name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="input-field"
-              required
-            />
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              className="input-field"
-            >
-              {PRIORITIES.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-            <input
-              type="text"
-              placeholder="Description (optional)"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="input-field"
-            />
-            <input
-              type="text"
-              placeholder="Keywords (comma separated)"
-              value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
-              className="input-field"
-            />
+            <div>
+              <label className="field-label">Name</label>
+              <input
+                type="text"
+                placeholder="e.g. Invoices, Support, Urgent"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="input-field"
+                required
+              />
+            </div>
+            <div>
+              <label className="field-label">Priority</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="input-field"
+              >
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>
+                    {p.charAt(0).toUpperCase() + p.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="field-label">Description (optional)</label>
+              <input
+                type="text"
+                placeholder="What kind of emails belong here?"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="input-field"
+              />
+            </div>
+            <div>
+              <label className="field-label">Keywords (optional)</label>
+              <input
+                type="text"
+                placeholder="invoice, payment, bill"
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
+                className="input-field"
+              />
+            </div>
             <button type="submit" disabled={loading} className="btn-primary w-full">
               {loading ? "Creating..." : "Add Category"}
             </button>
           </form>
+        </section>
 
-          {categories.length > 0 && (
+        <section>
+          <h3 className="text-sm font-semibold text-ink mb-3">
+            Existing ({categories.length})
+          </h3>
+          {categories.length === 0 ? (
+            <EmptyState
+              icon={Tag}
+              title="No categories yet"
+              description="Create categories so AI can classify your emails."
+              compact
+            />
+          ) : (
             <div className="space-y-2">
-              <p className="text-sm font-medium text-ink">Existing Categories</p>
               {categories.map((cat) => (
-                <div
-                  key={cat.id}
-                  className="flex items-center justify-between px-3 py-2.5 bg-surface rounded-lg border border-border"
-                >
+                <div key={cat.id} className="list-item">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-ink truncate">{cat.name}</p>
+                    {cat.description && (
+                      <p className="text-xs text-muted truncate mt-0.5">{cat.description}</p>
+                    )}
                     <span
-                      className={`inline-block text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded mt-1 ${
-                        priorityColor[cat.priority] || priorityColor.low
+                      className={`inline-block text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded mt-1.5 ${
+                        PRIORITY_COLORS[cat.priority] || PRIORITY_COLORS.low
                       }`}
                     >
                       {cat.priority}
@@ -125,16 +140,17 @@ export default function CategoryModal({ onClose }) {
                   <button
                     type="button"
                     onClick={() => deleteCategory(cat.id)}
-                    className="text-xs text-red-600 hover:text-red-700 ml-2 shrink-0 font-medium"
+                    className="p-2 text-muted hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
+                    aria-label="Delete category"
                   >
-                    Delete
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </section>
       </div>
-    </div>
+    </Modal>
   );
 }

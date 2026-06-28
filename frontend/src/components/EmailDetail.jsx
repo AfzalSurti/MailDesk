@@ -1,6 +1,7 @@
 import { ArrowLeft, Mail, X } from "lucide-react";
 import useStore from "../store/useStore";
 import { sanitizeEmailHtml, stripHtml } from "../utils/stripHtml";
+import EmptyState from "./ui/EmptyState";
 
 export default function EmailDetail() {
   const { selectedEmail, setSelectedEmail } = useStore();
@@ -11,10 +12,12 @@ export default function EmailDetail() {
 
   if (!selectedEmail) {
     return (
-      <div className={`${panelClass} items-center justify-center border-l border-border text-muted`}>
-        <Mail className="w-12 h-12 mb-3 opacity-25" />
-        <p className="text-sm font-medium">Select an email to read</p>
-        <p className="text-xs text-muted/70 mt-1">Choose a message from the inbox list</p>
+      <div className={`${panelClass} items-center justify-center border-l border-border`}>
+        <EmptyState
+          icon={Mail}
+          title="Select an email"
+          description="Choose a message from the inbox list to read it here."
+        />
       </div>
     );
   }

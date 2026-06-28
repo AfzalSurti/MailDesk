@@ -53,7 +53,7 @@ export default function LoginPage() {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <label className="field-label">Email</label>
             <input
               type="email"
               value={email}
@@ -64,7 +64,7 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label className="field-label">Password</label>
             <input
               type="password"
               value={password}
