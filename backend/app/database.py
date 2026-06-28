@@ -16,7 +16,7 @@ def normalize_database_url(url: str) -> str:
 
 engine = create_async_engine(
     normalize_database_url(settings.DATABASE_URL),
-    echo=True,
+    echo=settings.DEBUG,
     pool_pre_ping=True,   # drop dead connections before use (Neon closes idle ones)
     pool_recycle=280,     # recycle before Neon ~5 min idle timeout
     pool_size=5,

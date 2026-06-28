@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
     FRONTEND_URL: str
+    DEBUG: bool = False
 
     class Config:
         env_file = ".env"
