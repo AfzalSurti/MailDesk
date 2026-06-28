@@ -71,7 +71,7 @@ git push origin main
    | `OPENROUTER_API_KEY` | Your OpenRouter key |
    | `OPENROUTER_MODEL` | `openai/gpt-4o-mini` |
    | `DEBUG` | `false` |
-   | `FRONTEND_URL` | Leave blank for now — fill after Vercel deploy |
+   | `FRONTEND_URL` | Your Vercel URL — **exact match**, e.g. `https://mail-desk-one.vercel.app` (no trailing `/`) |
 
 5. Click **Create Web Service** and wait for deploy.
 6. Copy your API URL, e.g. `https://maildesk-api.onrender.com`.

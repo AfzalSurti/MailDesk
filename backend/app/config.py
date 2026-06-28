@@ -1,5 +1,15 @@
 from pydantic_settings import BaseSettings
 
+
+def parse_frontend_origins(value: str) -> list[str]:
+    """Comma-separated origins; trailing slashes stripped."""
+    return [
+        origin.strip().rstrip("/")
+        for origin in value.split(",")
+        if origin.strip()
+    ]
+
+
 class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
@@ -12,7 +22,12 @@ class Settings(BaseSettings):
     FRONTEND_URL: str
     DEBUG: bool = False
 
+    @property
+    def frontend_origins(self) -> list[str]:
+        return parse_frontend_origins(self.FRONTEND_URL)
+
     class Config:
         env_file = ".env"
+
 
 settings = Settings()
