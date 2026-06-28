@@ -1,20 +1,61 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
 import api from "../lib/axios";
 import useStore, { getSavedAccountId } from "../store/useStore";
+
+const POLL_MS = 800;
 
 export function useDashboardData() {
   const {
     selectedAccount,
     emails,
     emailsLoading,
+    emailsSyncing,
     setAccounts,
     setCategories,
     setSelectedAccount,
     setEmails,
     setEmailsLoading,
+    setEmailsSyncing,
     setSelectedEmail,
   } = useStore();
+
+  const pollRef = useRef(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const refreshEmails = useCallback(
+    async (accountId, { silent = false } = {}) => {
+      if (!silent) setEmailsLoading(true);
+      try {
+        const res = await api.get(`/emails/${accountId}`);
+        setEmails(res.data.emails || []);
+      } catch {
+        if (!silent) {
+          toast.error("Failed to load saved emails");
+          setEmails([]);
+        }
+      } finally {
+        if (!silent) setEmailsLoading(false);
+      }
+    },
+    [setEmails, setEmailsLoading]
+  );
+
+  const startPolling = useCallback(
+    (accountId) => {
+      stopPolling();
+      pollRef.current = setInterval(() => {
+        refreshEmails(accountId, { silent: true });
+      }, POLL_MS);
+    },
+    [refreshEmails, stopPolling]
+  );
 
   useEffect(() => {
     const load = async () => {
@@ -37,23 +78,8 @@ export function useDashboardData() {
       }
     };
     load();
-  }, [setAccounts, setCategories, setSelectedAccount]);
-
-  const loadStoredEmails = useCallback(
-    async (accountId) => {
-      setEmailsLoading(true);
-      try {
-        const res = await api.get(`/emails/${accountId}`);
-        setEmails(res.data.emails || []);
-      } catch {
-        toast.error("Failed to load saved emails");
-        setEmails([]);
-      } finally {
-        setEmailsLoading(false);
-      }
-    },
-    [setEmails, setEmailsLoading]
-  );
+    return stopPolling;
+  }, [setAccounts, setCategories, setSelectedAccount, stopPolling]);
 
   useEffect(() => {
     if (!selectedAccount) {
@@ -61,13 +87,15 @@ export function useDashboardData() {
       return;
     }
     setSelectedEmail(null);
-    loadStoredEmails(selectedAccount.id);
-  }, [selectedAccount?.id, loadStoredEmails, setEmails, setSelectedEmail]);
+    refreshEmails(selectedAccount.id);
+  }, [selectedAccount?.id, refreshEmails, setEmails, setSelectedEmail]);
 
   const syncEmails = useCallback(async () => {
-    if (!selectedAccount) return;
-    setSelectedEmail(null);
-    setEmailsLoading(true);
+    if (!selectedAccount || emailsSyncing) return;
+
+    setEmailsSyncing(true);
+    startPolling(selectedAccount.id);
+
     try {
       const res = await api.post(`/emails/${selectedAccount.id}/sync`);
       setEmails(res.data.emails || []);
@@ -77,14 +105,23 @@ export function useDashboardData() {
     } catch {
       toast.error("Failed to sync emails from Gmail");
     } finally {
-      setEmailsLoading(false);
+      stopPolling();
+      setEmailsSyncing(false);
     }
-  }, [selectedAccount, setEmails, setEmailsLoading, setSelectedEmail]);
+  }, [
+    selectedAccount,
+    emailsSyncing,
+    setEmails,
+    setEmailsSyncing,
+    startPolling,
+    stopPolling,
+  ]);
 
   return {
     selectedAccount,
     emails,
     emailsLoading,
+    emailsSyncing,
     syncEmails,
   };
 }

@@ -1,23 +1,33 @@
 import { Inbox, Mail, RefreshCw } from "lucide-react";
 import useStore from "../store/useStore";
 import { stripHtml } from "../utils/stripHtml";
-import { formatEmailDate } from "../utils/format";
+import { formatEmailDate, formatSender } from "../utils/format";
 import EmptyState from "./ui/EmptyState";
 
-const LIST_WIDTH = "w-full md:w-[340px] lg:w-[380px] shrink-0";
+const LIST_WIDTH = "w-full md:w-[320px] lg:w-[360px] shrink-0";
 
 function ListShell({ children, className = "" }) {
   return (
-    <div className={`${LIST_WIDTH} border-r border-border bg-surface flex flex-col ${className}`}>
+    <div
+      className={`${LIST_WIDTH} border-r border-border bg-surface flex flex-col min-h-0 ${className}`}
+    >
       {children}
     </div>
   );
 }
 
-export default function EmailList({ onRefresh, onOpenSettings }) {
-  const { emails, emailsLoading, selectedAccount, selectedEmail, setSelectedEmail } = useStore();
+export default function EmailList({ onRefresh }) {
+  const {
+    emails,
+    emailsLoading,
+    emailsSyncing,
+    selectedAccount,
+    selectedEmail,
+    setSelectedEmail,
+  } = useStore();
 
   const hiddenOnMobile = selectedEmail ? "hidden md:flex" : "flex";
+  const showInitialLoader = emailsLoading && emails.length === 0 && !emailsSyncing;
 
   if (!selectedAccount) {
     return (
@@ -31,18 +41,18 @@ export default function EmailList({ onRefresh, onOpenSettings }) {
     );
   }
 
-  if (emailsLoading) {
+  if (showInitialLoader) {
     return (
-      <ListShell className={`${hiddenOnMobile} items-center justify-center min-h-0`}>
+      <ListShell className={`${hiddenOnMobile} items-center justify-center`}>
         <div className="flex items-center gap-2 text-muted text-sm">
-          <RefreshCw className="w-5 h-5 animate-spin" />
-          Loading emails...
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          Loading inbox...
         </div>
       </ListShell>
     );
   }
 
-  if (emails.length === 0) {
+  if (emails.length === 0 && !emailsSyncing) {
     return (
       <ListShell className={`${hiddenOnMobile} items-center justify-center`}>
         <EmptyState
@@ -57,47 +67,68 @@ export default function EmailList({ onRefresh, onOpenSettings }) {
   }
 
   return (
-    <ListShell className={`${hiddenOnMobile} overflow-hidden min-h-0`}>
-      <div className="px-4 py-3 border-b border-border bg-card/60">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-          Inbox · {emails.length}
+    <ListShell className={`${hiddenOnMobile} overflow-hidden`}>
+      <div className="shrink-0 px-4 py-2.5 border-b border-border bg-card flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-ink tracking-wide">
+          Inbox
+          <span className="text-muted font-normal ml-1.5">{emails.length}</span>
         </p>
+        {emailsSyncing && (
+          <span className="flex items-center gap-1.5 text-[11px] text-accent font-medium">
+            <RefreshCw className="w-3 h-3 animate-spin" />
+            Syncing
+          </span>
+        )}
       </div>
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
-        {emails.map((email) => {
-          const isActive = selectedEmail?.id === email.id;
-          const preview = stripHtml(email.body_preview).slice(0, 120);
-          return (
-            <button
-              key={email.id}
-              type="button"
-              onClick={() => setSelectedEmail(email)}
-              className={`w-full text-left rounded-xl p-4 border transition-all ${
-                isActive
-                  ? "bg-card border-accent shadow-sm ring-1 ring-accent/20"
-                  : "bg-card border-border hover:border-accent/40 hover:shadow-sm"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-ink text-sm leading-snug line-clamp-2">
+
+      {emails.length === 0 && emailsSyncing ? (
+        <div className="flex-1 flex items-center justify-center text-muted text-sm gap-2">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          Fetching emails...
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto divide-y divide-border/80">
+          {emails.map((email) => {
+            const isActive = selectedEmail?.id === email.id;
+            const preview = stripHtml(email.body_preview).slice(0, 90);
+            const sender = formatSender(email.from_address);
+
+            return (
+              <button
+                key={email.id}
+                type="button"
+                onClick={() => setSelectedEmail(email)}
+                className={`w-full text-left px-4 py-2.5 transition-colors border-l-[3px] ${
+                  isActive
+                    ? "bg-card border-l-accent"
+                    : "border-l-transparent hover:bg-card/70"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2 min-w-0">
+                  <p
+                    className={`text-[13px] leading-snug truncate flex-1 ${
+                      isActive ? "font-semibold text-ink" : "font-medium text-ink/90"
+                    }`}
+                  >
                     {email.subject || "(No Subject)"}
                   </p>
-                  <p className="text-xs text-muted mt-1.5 truncate">{email.from_address}</p>
-                  <p className="text-xs text-muted/80 mt-2 line-clamp-2 leading-relaxed">
+                  {email.date && (
+                    <span className="text-[11px] text-muted shrink-0 pt-px">
+                      {formatEmailDate(email.date)}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-muted truncate mt-0.5">{sender}</p>
+                {preview && (
+                  <p className="text-[11px] text-muted/70 truncate mt-0.5 leading-relaxed">
                     {preview}
                   </p>
-                </div>
-                {email.date && (
-                  <span className="text-[10px] text-muted/70 whitespace-nowrap shrink-0 pt-0.5">
-                    {formatEmailDate(email.date)}
-                  </span>
                 )}
-              </div>
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </ListShell>
   );
 }

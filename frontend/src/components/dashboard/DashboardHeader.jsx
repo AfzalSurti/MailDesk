@@ -2,16 +2,15 @@ import { Menu, RefreshCw } from "lucide-react";
 
 export default function DashboardHeader({
   selectedAccount,
-  emailCount,
-  emailsLoading,
+  emailsSyncing,
   onOpenSidebar,
   onOpenCategories,
   onSync,
 }) {
   return (
-    <header className="bg-card border-b border-border px-4 md:px-6 py-4 shrink-0">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3 min-w-0">
+    <header className="bg-card border-b border-border px-4 md:px-5 py-3 shrink-0">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
             onClick={onOpenSidebar}
@@ -21,19 +20,14 @@ export default function DashboardHeader({
             <Menu className="w-5 h-5" />
           </button>
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-ink truncate">
+            <h2 className="text-base font-semibold text-ink truncate leading-tight">
               {selectedAccount
                 ? selectedAccount.display_name || selectedAccount.email_address
                 : "Select an account"}
             </h2>
             {selectedAccount && (
-              <p className="text-xs text-muted font-mono mt-0.5 truncate">
+              <p className="text-[11px] text-muted font-mono truncate mt-0.5">
                 {selectedAccount.email_address}
-              </p>
-            )}
-            {selectedAccount && emailCount > 0 && (
-              <p className="text-xs text-muted mt-1">
-                {emailCount} email{emailCount !== 1 ? "s" : ""} saved
               </p>
             )}
           </div>
@@ -43,7 +37,7 @@ export default function DashboardHeader({
           <button
             type="button"
             onClick={onOpenCategories}
-            className="btn-secondary hidden sm:inline-flex"
+            className="btn-secondary hidden sm:inline-flex text-xs px-3 py-1.5"
           >
             Categories
           </button>
@@ -51,18 +45,22 @@ export default function DashboardHeader({
             <button
               type="button"
               onClick={onSync}
-              disabled={emailsLoading}
-              className="btn-primary inline-flex items-center gap-2"
+              disabled={emailsSyncing}
+              className="btn-primary inline-flex items-center gap-1.5 text-xs px-3 py-1.5"
             >
-              {emailsLoading && <RefreshCw className="w-4 h-4 animate-spin" />}
-              {emailsLoading ? "Syncing..." : "Sync"}
+              {emailsSyncing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+              {emailsSyncing ? "Syncing..." : "Sync"}
             </button>
           )}
         </div>
       </div>
 
-      <div className="flex gap-2 mt-3 sm:hidden">
-        <button type="button" onClick={onOpenCategories} className="btn-secondary flex-1">
+      <div className="flex gap-2 mt-2.5 sm:hidden">
+        <button
+          type="button"
+          onClick={onOpenCategories}
+          className="btn-secondary flex-1 text-xs py-1.5"
+        >
           Categories
         </button>
       </div>

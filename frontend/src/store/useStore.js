@@ -12,7 +12,13 @@ const useStore = create((set) => ({
   logout: () => {
     localStorage.removeItem("token");
     localStorage.removeItem(SELECTED_ACCOUNT_KEY);
-    set({ token: null, selectedAccount: null, emails: [], selectedEmail: null });
+    set({
+      token: null,
+      selectedAccount: null,
+      emails: [],
+      selectedEmail: null,
+      emailsSyncing: false,
+    });
   },
 
   // Accounts
@@ -39,6 +45,8 @@ const useStore = create((set) => ({
   setSelectedEmail: (email) => set({ selectedEmail: email }),
   emailsLoading: false,
   setEmailsLoading: (val) => set({ emailsLoading: val }),
+  emailsSyncing: false,
+  setEmailsSyncing: (val) => set({ emailsSyncing: val }),
 }));
 
 export default useStore;

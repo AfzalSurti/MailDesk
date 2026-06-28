@@ -5,7 +5,7 @@ from html import unescape
 from html.parser import HTMLParser
 import re
 from datetime import datetime, timedelta
-from typing import List, Dict, Tuple
+from typing import Dict, Iterator, List, Tuple
 from app.accounts.service import decrypt_password
 
 
@@ -123,12 +123,12 @@ def decode_mime_header(value: str) -> str:
     return result
 
 
-def fetch_emails(
+def iter_fetch_emails(
     email_address: str,
     encrypted_password: str,
     days: int = 3,
     limit: int = 200,
-) -> List[Dict]:
+) -> Iterator[Dict]:
     app_password = decrypt_password(encrypted_password)
 
     mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
@@ -142,21 +142,20 @@ def fetch_emails(
     selected_ids = all_ids[-limit:] if len(all_ids) > limit else all_ids
     selected_ids = list(reversed(selected_ids))
 
-    emails = []
-    for uid in selected_ids:
-        try:
-            _, msg_data = mail.fetch(uid, "(RFC822)")
-            raw = msg_data[0][1]
-            msg = email.message_from_bytes(raw)
+    try:
+        for uid in selected_ids:
+            try:
+                _, msg_data = mail.fetch(uid, "(RFC822)")
+                raw = msg_data[0][1]
+                msg = email.message_from_bytes(raw)
 
-            subject = decode_mime_header(msg.get("Subject", "(No Subject)"))
-            sender = decode_mime_header(msg.get("From", ""))
-            date = msg.get("Date", "")
-            body_text, body_html = extract_email_content(msg)
-            preview_source = body_text or html_to_text(body_html)
+                subject = decode_mime_header(msg.get("Subject", "(No Subject)"))
+                sender = decode_mime_header(msg.get("From", ""))
+                date = msg.get("Date", "")
+                body_text, body_html = extract_email_content(msg)
+                preview_source = body_text or html_to_text(body_html)
 
-            emails.append(
-                {
+                yield {
                     "uid": uid.decode(),
                     "subject": subject,
                     "sender": sender,
@@ -165,12 +164,26 @@ def fetch_emails(
                     "body": body_text,
                     "body_html": body_html,
                 }
-            )
-        except Exception:
-            continue
+            except Exception:
+                continue
+    finally:
+        mail.logout()
 
-    mail.logout()
-    return emails
+
+def fetch_emails(
+    email_address: str,
+    encrypted_password: str,
+    days: int = 3,
+    limit: int = 200,
+) -> List[Dict]:
+    return list(
+        iter_fetch_emails(
+            email_address,
+            encrypted_password,
+            days=days,
+            limit=limit,
+        )
+    )
 
 
 def delete_email(email_address: str, encrypted_password: str, uid: str) -> bool:
