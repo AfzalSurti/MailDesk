@@ -1,10 +1,10 @@
-import { Link, Navigate } from "react-router-dom";
-import { Inbox, Sparkles, Shield, ArrowRight } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Inbox, Sparkles, Shield, ArrowRight, LayoutDashboard } from "lucide-react";
 import useStore from "../store/useStore";
 
 export default function LandingPage() {
   const token = useStore((s) => s.token);
-  if (token) return <Navigate to="/dashboard" replace />;
+  const isLoggedIn = Boolean(token);
 
   return (
     <div className="min-h-screen bg-surface">
@@ -15,12 +15,23 @@ export default function LandingPage() {
           </div>
           <span className="text-xl font-bold text-ink">MailDesk</span>
         </div>
-        <Link
-          to="/login"
-          className="px-5 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors"
-        >
-          Sign In
-        </Link>
+
+        {isLoggedIn ? (
+          <Link
+            to="/dashboard"
+            className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors"
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            Return to Dashboard
+          </Link>
+        ) : (
+          <Link
+            to="/login"
+            className="px-5 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-lg transition-colors"
+          >
+            Sign In
+          </Link>
+        )}
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-16">
@@ -35,13 +46,24 @@ export default function LandingPage() {
             Connect multiple company Gmail accounts, sync emails instantly,
             and let AI categorize them by priority — all from a single dashboard.
           </p>
-          <Link
-            to="/login"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-lg transition-colors"
-          >
-            Get Started
-            <ArrowRight className="w-4 h-4" />
-          </Link>
+
+          {isLoggedIn ? (
+            <Link
+              to="/dashboard"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-lg transition-colors"
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              Go to Dashboard
+            </Link>
+          ) : (
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-lg transition-colors"
+            >
+              Get Started
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          )}
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 mt-20">

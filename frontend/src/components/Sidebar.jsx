@@ -1,6 +1,6 @@
-import { LogOut, Settings } from "lucide-react";
+import { LogOut, Settings, Home } from "lucide-react";
 import useStore from "../store/useStore";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 export default function Sidebar({ onSettingsOpen }) {
   const { accounts, selectedAccount, setSelectedAccount, logout } = useStore();
@@ -56,6 +56,13 @@ export default function Sidebar({ onSettingsOpen }) {
       </div>
 
       <div className="border-t border-white/10 p-4 space-y-1">
+        <Link
+          to="/"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 text-sm"
+        >
+          <Home className="w-4 h-4" />
+          Home
+        </Link>
         <button
           onClick={onSettingsOpen}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 text-sm"

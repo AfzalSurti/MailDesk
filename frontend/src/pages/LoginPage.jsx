@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import api from "../lib/axios";
 import useStore from "../store/useStore";
@@ -9,7 +9,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const setToken = useStore((s) => s.setToken);
+  const token = useStore((s) => s.token);
   const navigate = useNavigate();
+
+  if (token) return <Navigate to="/dashboard" replace />;
 
   const handleLogin = async () => {
     if (!email || !password) {
