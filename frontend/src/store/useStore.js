@@ -16,8 +16,9 @@ const useStore = create((set) => ({
       token: null,
       selectedAccount: null,
       emails: [],
-      selectedEmail: null,
+      selectedEmailId: null,
       emailsSyncing: false,
+      emailsRecategorizing: false,
     });
   },
 
@@ -31,26 +32,33 @@ const useStore = create((set) => ({
     } else {
       localStorage.removeItem(SELECTED_ACCOUNT_KEY);
     }
-    set({ selectedAccount: account, emails: [], selectedEmail: null });
+    set({ selectedAccount: account, emails: [], selectedEmailId: null });
   },
 
   // Categories
   categories: [],
   setCategories: (categories) => set({ categories }),
 
-  // Emails
+  // Emails — track selection by ID so polling never shows stale/wrong content
   emails: [],
   setEmails: (emails) => set({ emails }),
-  selectedEmail: null,
-  setSelectedEmail: (email) => set({ selectedEmail: email }),
+  selectedEmailId: null,
+  setSelectedEmailId: (id) => set({ selectedEmailId: id }),
   emailsLoading: false,
   setEmailsLoading: (val) => set({ emailsLoading: val }),
   emailsSyncing: false,
   setEmailsSyncing: (val) => set({ emailsSyncing: val }),
+  emailsRecategorizing: false,
+  setEmailsRecategorizing: (val) => set({ emailsRecategorizing: val }),
 }));
 
 export default useStore;
 
 export function getSavedAccountId() {
   return localStorage.getItem(SELECTED_ACCOUNT_KEY);
+}
+
+export function selectEmailById(emails, selectedEmailId) {
+  if (!selectedEmailId) return null;
+  return emails.find((e) => e.id === selectedEmailId) ?? null;
 }

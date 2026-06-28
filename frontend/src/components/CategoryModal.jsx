@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Tag, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Tag, Trash2, Sparkles, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../lib/axios";
 import useStore from "../store/useStore";
@@ -7,13 +7,35 @@ import Modal from "./ui/Modal";
 import EmptyState from "./ui/EmptyState";
 import { PRIORITIES, PRIORITY_COLORS } from "../constants/categories";
 
-export default function CategoryModal({ onClose }) {
+export default function CategoryModal({
+  onClose,
+  selectedAccount,
+  onRecategorizeAll,
+  recategorizing,
+  syncing,
+}) {
   const { categories, setCategories } = useStore();
   const [name, setName] = useState("");
   const [priority, setPriority] = useState("medium");
   const [description, setDescription] = useState("");
   const [keywords, setKeywords] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      setFetching(true);
+      try {
+        const { data } = await api.get("/categories/");
+        setCategories(data);
+      } catch {
+        toast.error("Failed to load categories");
+      } finally {
+        setFetching(false);
+      }
+    };
+    loadCategories();
+  }, [setCategories]);
 
   const addCategory = async (e) => {
     e.preventDefault();
@@ -113,7 +135,9 @@ export default function CategoryModal({ onClose }) {
           <h3 className="text-sm font-semibold text-ink mb-3">
             Existing ({categories.length})
           </h3>
-          {categories.length === 0 ? (
+          {fetching ? (
+            <p className="text-sm text-muted text-center py-4">Loading categories...</p>
+          ) : categories.length === 0 ? (
             <EmptyState
               icon={Tag}
               title="No categories yet"
@@ -149,6 +173,26 @@ export default function CategoryModal({ onClose }) {
               ))}
             </div>
           )}
+        </section>
+
+        <section className="border-t border-border pt-6">
+          <h3 className="text-sm font-semibold text-ink mb-1">Bulk re-categorization</h3>
+          <p className="text-xs text-muted mb-4 leading-relaxed">
+            Re-run AI on all saved emails for the selected account. Use this to fix
+            wrong labels (e.g. everything marked as Job Opportunities).
+          </p>
+          <button
+            type="button"
+            onClick={onRecategorizeAll}
+            disabled={!selectedAccount || recategorizing || syncing}
+            className="btn-secondary w-full inline-flex items-center justify-center gap-2"
+          >
+            {(recategorizing || syncing) && (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            )}
+            <Sparkles className="w-4 h-4" />
+            {recategorizing ? "Re-categorizing all emails..." : "Re-categorize all emails"}
+          </button>
         </section>
       </div>
     </Modal>

@@ -3,6 +3,7 @@ import useStore from "../store/useStore";
 import { stripHtml } from "../utils/stripHtml";
 import { formatEmailDate, formatSender } from "../utils/format";
 import EmptyState from "./ui/EmptyState";
+import CategoryBadge from "./ui/CategoryBadge";
 
 const LIST_WIDTH = "w-full md:w-[320px] lg:w-[360px] shrink-0";
 
@@ -21,12 +22,13 @@ export default function EmailList({ onRefresh }) {
     emails,
     emailsLoading,
     emailsSyncing,
+    emailsRecategorizing,
     selectedAccount,
-    selectedEmail,
-    setSelectedEmail,
+    selectedEmailId,
+    setSelectedEmailId,
   } = useStore();
 
-  const hiddenOnMobile = selectedEmail ? "hidden md:flex" : "flex";
+  const hiddenOnMobile = selectedEmailId ? "hidden md:flex" : "flex";
   const showInitialLoader = emailsLoading && emails.length === 0 && !emailsSyncing;
 
   if (!selectedAccount) {
@@ -73,10 +75,10 @@ export default function EmailList({ onRefresh }) {
           Inbox
           <span className="text-muted font-normal ml-1.5">{emails.length}</span>
         </p>
-        {emailsSyncing && (
+        {(emailsSyncing || emailsRecategorizing) && (
           <span className="flex items-center gap-1.5 text-[11px] text-accent font-medium">
             <RefreshCw className="w-3 h-3 animate-spin" />
-            Syncing
+            {emailsRecategorizing ? "Re-categorizing" : "Syncing"}
           </span>
         )}
       </div>
@@ -89,7 +91,7 @@ export default function EmailList({ onRefresh }) {
       ) : (
         <div className="flex-1 overflow-y-auto divide-y divide-border/80">
           {emails.map((email) => {
-            const isActive = selectedEmail?.id === email.id;
+            const isActive = selectedEmailId === email.id;
             const preview = stripHtml(email.body_preview).slice(0, 90);
             const sender = formatSender(email.from_address);
 
@@ -97,7 +99,7 @@ export default function EmailList({ onRefresh }) {
               <button
                 key={email.id}
                 type="button"
-                onClick={() => setSelectedEmail(email)}
+                onClick={() => setSelectedEmailId(email.id)}
                 className={`w-full text-left px-4 py-2.5 transition-colors border-l-[3px] ${
                   isActive
                     ? "bg-card border-l-accent"
@@ -118,7 +120,14 @@ export default function EmailList({ onRefresh }) {
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-muted truncate mt-0.5">{sender}</p>
+                <div className="flex items-center gap-2 mt-0.5 min-w-0">
+                  <p className="text-xs text-muted truncate flex-1">{sender}</p>
+                  <CategoryBadge
+                    name={email.category_name}
+                    priority={email.category_priority}
+                    compact
+                  />
+                </div>
                 {preview && (
                   <p className="text-[11px] text-muted/70 truncate mt-0.5 leading-relaxed">
                     {preview}

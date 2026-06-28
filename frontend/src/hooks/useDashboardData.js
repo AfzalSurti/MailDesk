@@ -11,13 +11,15 @@ export function useDashboardData() {
     emails,
     emailsLoading,
     emailsSyncing,
+    emailsRecategorizing,
     setAccounts,
     setCategories,
     setSelectedAccount,
     setEmails,
     setEmailsLoading,
     setEmailsSyncing,
-    setSelectedEmail,
+    setEmailsRecategorizing,
+    setSelectedEmailId,
   } = useStore();
 
   const pollRef = useRef(null);
@@ -59,22 +61,29 @@ export function useDashboardData() {
 
   useEffect(() => {
     const load = async () => {
-      try {
-        const [accRes, catRes] = await Promise.all([
-          api.get("/accounts/"),
-          api.get("/categories/"),
-        ]);
-        setAccounts(accRes.data);
-        setCategories(catRes.data);
+      const accPromise = api.get("/accounts/").then((res) => {
+        setAccounts(res.data);
+        return res.data;
+      }).catch(() => {
+        toast.error("Failed to load accounts");
+        return [];
+      });
 
-        const savedId = getSavedAccountId();
-        const restored =
-          accRes.data.find((a) => a.id === savedId) ?? accRes.data[0] ?? null;
-        if (restored) {
-          setSelectedAccount(restored);
-        }
-      } catch {
-        toast.error("Failed to load dashboard data");
+      const catPromise = api.get("/categories/").then((res) => {
+        setCategories(res.data);
+        return res.data;
+      }).catch(() => {
+        toast.error("Failed to load categories");
+        return [];
+      });
+
+      const [accounts] = await Promise.all([accPromise, catPromise]);
+
+      const savedId = getSavedAccountId();
+      const restored =
+        accounts.find((a) => a.id === savedId) ?? accounts[0] ?? null;
+      if (restored) {
+        setSelectedAccount(restored);
       }
     };
     load();
@@ -86,12 +95,12 @@ export function useDashboardData() {
       setEmails([]);
       return;
     }
-    setSelectedEmail(null);
+    setSelectedEmailId(null);
     refreshEmails(selectedAccount.id);
-  }, [selectedAccount?.id, refreshEmails, setEmails, setSelectedEmail]);
+  }, [selectedAccount?.id, refreshEmails, setEmails, setSelectedEmailId]);
 
   const syncEmails = useCallback(async () => {
-    if (!selectedAccount || emailsSyncing) return;
+    if (!selectedAccount || emailsSyncing || emailsRecategorizing) return;
 
     setEmailsSyncing(true);
     startPolling(selectedAccount.id);
@@ -102,8 +111,13 @@ export function useDashboardData() {
       toast.success(
         `Synced ${res.data.emails?.length || 0} emails from the last 3 days`
       );
-    } catch {
-      toast.error("Failed to sync emails from Gmail");
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      toast.error(
+        typeof detail === "string"
+          ? detail
+          : "Failed to sync emails from Gmail"
+      );
     } finally {
       stopPolling();
       setEmailsSyncing(false);
@@ -113,6 +127,39 @@ export function useDashboardData() {
     emailsSyncing,
     setEmails,
     setEmailsSyncing,
+    emailsRecategorizing,
+    setEmailsRecategorizing,
+    startPolling,
+    stopPolling,
+  ]);
+
+  const recategorizeAll = useCallback(async () => {
+    if (!selectedAccount || emailsRecategorizing || emailsSyncing) return;
+
+    setEmailsRecategorizing(true);
+    startPolling(selectedAccount.id);
+
+    try {
+      const res = await api.post(`/emails/${selectedAccount.id}/recategorize`);
+      setEmails(res.data.emails || []);
+      toast.success(`Re-categorized ${res.data.emails?.length || 0} emails`);
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      toast.error(
+        typeof detail === "string"
+          ? detail
+          : "Bulk re-categorization failed"
+      );
+    } finally {
+      stopPolling();
+      setEmailsRecategorizing(false);
+    }
+  }, [
+    selectedAccount,
+    emailsRecategorizing,
+    emailsSyncing,
+    setEmails,
+    setEmailsRecategorizing,
     startPolling,
     stopPolling,
   ]);
@@ -122,6 +169,8 @@ export function useDashboardData() {
     emails,
     emailsLoading,
     emailsSyncing,
+    emailsRecategorizing,
     syncEmails,
+    recategorizeAll,
   };
 }

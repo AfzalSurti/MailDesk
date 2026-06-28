@@ -8,9 +8,14 @@ from app.accounts.models import GmailAccount
 from app.auth.utils import get_current_user
 from app.categories.models import Category
 from app.database import get_db
-from app.emails.ai_service import classify_email
+from app.emails.ai_service import ClassificationAPIError, classify_email
 from app.emails.models import EmailMessage
-from app.emails.sync_service import list_account_emails, sync_account_emails
+from app.emails.sync_service import (
+    categorize_stored_email,
+    list_account_emails,
+    recategorize_all_emails,
+    sync_account_emails,
+)
 
 router = APIRouter()
 
@@ -23,6 +28,9 @@ class EmailItem(BaseModel):
     body_preview: str
     body: str
     body_html: str = ""
+    category_name: str | None = None
+    category_priority: str | None = None
+    confidence_score: float | None = None
 
 
 class SyncResponse(BaseModel):
@@ -51,6 +59,9 @@ def _to_email_item(record: EmailMessage) -> EmailItem:
         body_preview=record.body_preview,
         body=record.body,
         body_html=record.body_html or "",
+        category_name=record.category_name,
+        category_priority=record.category_priority,
+        confidence_score=record.confidence_score,
     )
 
 
@@ -122,6 +133,13 @@ async def sync_account_emails_endpoint(
 
     try:
         stored = await sync_account_emails(db, account, days=days)
+    except ClassificationAPIError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED
+            if exc.status_code in (401, 402, 403)
+            else status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -134,6 +152,66 @@ async def sync_account_emails_endpoint(
         count=len(stored),
         emails=[_to_email_item(e) for e in stored],
     )
+
+
+@router.post("/{account_id}/recategorize", response_model=SyncResponse)
+async def recategorize_all_emails_endpoint(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+):
+    account = await _get_account_or_404(db, account_id)
+
+    try:
+        stored = await recategorize_all_emails(db, account_id)
+    except ClassificationAPIError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED
+            if exc.status_code in (401, 402, 403)
+            else status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Bulk re-categorization failed: {exc}",
+        ) from exc
+
+    return SyncResponse(
+        account_id=account.id,
+        email_address=account.email_address,
+        count=len(stored),
+        emails=[_to_email_item(e) for e in stored],
+    )
+
+
+@router.post("/{account_id}/{gmail_uid}/categorize", response_model=CategorizeResponse)
+async def categorize_stored_email_endpoint(
+    account_id: uuid.UUID,
+    gmail_uid: str,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+):
+    await _get_account_or_404(db, account_id)
+    try:
+        matched = await categorize_stored_email(db, account_id, gmail_uid)
+    except ClassificationAPIError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED
+            if exc.status_code in (401, 402, 403)
+            else status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI categorization failed: {exc}",
+        ) from exc
+    return CategorizeResponse(category=matched)
 
 
 @router.post("/categorize", response_model=CategorizeResponse)
@@ -162,12 +240,21 @@ async def categorize_email_endpoint(
             detail="No categories configured. Add categories first.",
         )
 
-    matched = await classify_email(
-        subject=body.subject,
-        sender=body.sender,
-        body_preview=body.body[:500],
-        categories=category_payload,
-        account_id="manual",
-        uid="manual-categorize",
-    )
+    try:
+        matched = await classify_email(
+            subject=body.subject,
+            sender=body.sender,
+            body_preview=body.body[:500],
+            categories=category_payload,
+            account_id="manual",
+            uid="manual-categorize",
+            force=True,
+        )
+    except ClassificationAPIError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED
+            if exc.status_code in (401, 402, 403)
+            else status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
     return CategorizeResponse(category=matched)

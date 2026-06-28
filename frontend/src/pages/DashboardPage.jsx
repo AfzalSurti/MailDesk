@@ -8,7 +8,13 @@ import DashboardHeader from "../components/dashboard/DashboardHeader";
 import { useDashboardData } from "../hooks/useDashboardData";
 
 export default function DashboardPage() {
-  const { selectedAccount, emailsSyncing, syncEmails } = useDashboardData();
+  const {
+    selectedAccount,
+    emailsSyncing,
+    emailsRecategorizing,
+    syncEmails,
+    recategorizeAll,
+  } = useDashboardData();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
@@ -34,7 +40,7 @@ export default function DashboardPage() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <DashboardHeader
           selectedAccount={selectedAccount}
-          emailsSyncing={emailsSyncing}
+          emailsSyncing={emailsSyncing || emailsRecategorizing}
           onOpenSidebar={() => setSidebarOpen(true)}
           onOpenCategories={() => setCategoryOpen(true)}
           onSync={syncEmails}
@@ -47,7 +53,15 @@ export default function DashboardPage() {
       </div>
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
-      {categoryOpen && <CategoryModal onClose={() => setCategoryOpen(false)} />}
+      {categoryOpen && (
+        <CategoryModal
+          onClose={() => setCategoryOpen(false)}
+          selectedAccount={selectedAccount}
+          onRecategorizeAll={recategorizeAll}
+          recategorizing={emailsRecategorizing}
+          syncing={emailsSyncing}
+        />
+      )}
     </div>
   );
 }

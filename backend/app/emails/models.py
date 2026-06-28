@@ -1,7 +1,7 @@
 from datetime import datetime
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
@@ -28,3 +28,7 @@ class EmailMessage(Base):
     body_html = Column(Text, nullable=False, default="")
     body_preview = Column(String(500), nullable=False, default="")
     synced_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
+    category_name = Column(String(255), nullable=True)
+    category_priority = Column(String(20), nullable=True)
+    confidence_score = Column(Float, nullable=True)
