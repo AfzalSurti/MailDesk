@@ -19,6 +19,10 @@ class AccountCreate(BaseModel):
     app_password: str
     display_name: Optional[str] = None
 
+class AccountUpdate(BaseModel):
+    display_name: Optional[str] = None
+    app_password: Optional[str] = None
+
 class AccountResponse(BaseModel):
     id: uuid.UUID
     email_address: str
@@ -86,3 +90,39 @@ async def delete_account(
 
     await db.delete(account)
     await db.commit()
+
+
+@router.patch("/{account_id}", response_model=AccountResponse)
+async def update_account(
+    account_id: uuid.UUID,
+    body: AccountUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(GmailAccount).where(GmailAccount.id == account_id)
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if body.display_name is not None:
+        account.display_name = body.display_name.strip() or None
+
+    if body.app_password is not None:
+        if not body.app_password.strip():
+            raise HTTPException(status_code=400, detail="App password cannot be empty")
+        valid = test_imap_connection(account.email_address, body.app_password)
+        if not valid:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not connect to Gmail. Check the app password.",
+            )
+        account.app_password = encrypt_password(body.app_password)
+
+    if body.display_name is None and body.app_password is None:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    await db.commit()
+    await db.refresh(account)
+    return account

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mail, Trash2 } from "lucide-react";
+import { Mail, Trash2, Pencil, X, Check } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../lib/axios";
 import useStore from "../store/useStore";
@@ -12,6 +12,10 @@ export default function SettingsModal({ onClose }) {
   const [appPassword, setAppPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [editAppPassword, setEditAppPassword] = useState("");
+  const [savingId, setSavingId] = useState(null);
 
   const addAccount = async (e) => {
     e.preventDefault();
@@ -35,13 +39,67 @@ export default function SettingsModal({ onClose }) {
     }
   };
 
-  const deleteAccount = async (id) => {
+  const startEdit = (acc) => {
+    setEditingId(acc.id);
+    setEditDisplayName(acc.display_name || "");
+    setEditAppPassword("");
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditDisplayName("");
+    setEditAppPassword("");
+  };
+
+  const saveEdit = async (acc) => {
+    const payload = {};
+    const trimmedName = editDisplayName.trim();
+    const trimmedPassword = editAppPassword.trim();
+
+    if (trimmedName !== (acc.display_name || "")) {
+      payload.display_name = trimmedName;
+    }
+    if (trimmedPassword) {
+      payload.app_password = trimmedPassword;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      toast.error("Change display name or enter a new app password");
+      return;
+    }
+
+    setSavingId(acc.id);
     try {
-      await api.delete(`/accounts/${id}`);
-      const remaining = accounts.filter((a) => a.id !== id);
+      const { data } = await api.patch(`/accounts/${acc.id}`, payload);
+      const updated = accounts.map((a) => (a.id === acc.id ? data : a));
+      setAccounts(updated);
+      if (selectedAccount?.id === acc.id) {
+        setSelectedAccount(data);
+      }
+      toast.success("Account updated");
+      cancelEdit();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to update account");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const deleteAccount = async (acc) => {
+    const label = acc.display_name || acc.email_address;
+    if (!window.confirm(`Remove "${label}"? Synced emails for this account will be deleted.`)) {
+      return;
+    }
+
+    try {
+      await api.delete(`/accounts/${acc.id}`);
+      const remaining = accounts.filter((a) => a.id !== acc.id);
       setAccounts(remaining);
-      if (selectedAccount?.id === id) {
+      if (selectedAccount?.id === acc.id) {
         setSelectedAccount(remaining[0] ?? null);
+      }
+      if (editingId === acc.id) {
+        cancelEdit();
       }
       toast.success("Account removed");
     } catch {
@@ -98,9 +156,10 @@ export default function SettingsModal({ onClose }) {
         </section>
 
         <section>
-          <h3 className="text-sm font-semibold text-ink mb-3">
-            Connected Accounts ({accounts.length})
-          </h3>
+          <h3 className="text-sm font-semibold text-ink mb-1">Manage Accounts</h3>
+          <p className="text-xs text-muted mb-3">
+            Edit display name or app password, or remove a connected inbox.
+          </p>
           {accounts.length === 0 ? (
             <EmptyState
               icon={Mail}
@@ -111,23 +170,89 @@ export default function SettingsModal({ onClose }) {
           ) : (
             <div className="space-y-2">
               {accounts.map((acc) => (
-                <div key={acc.id} className="list-item">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-ink truncate">
-                      {acc.display_name || acc.email_address}
-                    </p>
-                    <p className="text-xs text-muted font-mono truncate mt-0.5">
-                      {acc.email_address}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => deleteAccount(acc.id)}
-                    className="p-2 text-muted hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
-                    aria-label="Remove account"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                <div key={acc.id} className="list-item flex-col items-stretch gap-3">
+                  {editingId === acc.id ? (
+                    <div className="space-y-3 w-full">
+                      <div>
+                        <label className="field-label">Email</label>
+                        <input
+                          type="email"
+                          value={acc.email_address}
+                          className="input-field bg-surface text-muted"
+                          disabled
+                        />
+                      </div>
+                      <div>
+                        <label className="field-label">Display name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Sales Inbox"
+                          value={editDisplayName}
+                          onChange={(e) => setEditDisplayName(e.target.value)}
+                          className="input-field"
+                        />
+                      </div>
+                      <div>
+                        <label className="field-label">New app password (optional)</label>
+                        <input
+                          type="password"
+                          placeholder="Leave blank to keep current password"
+                          value={editAppPassword}
+                          onChange={(e) => setEditAppPassword(e.target.value)}
+                          className="input-field"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => saveEdit(acc)}
+                          disabled={savingId === acc.id}
+                          className="btn-primary flex-1 inline-flex items-center justify-center gap-2"
+                        >
+                          <Check className="w-4 h-4" />
+                          {savingId === acc.id ? "Saving..." : "Save changes"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEdit}
+                          disabled={savingId === acc.id}
+                          className="btn-secondary inline-flex items-center justify-center gap-2 px-4"
+                        >
+                          <X className="w-4 h-4" />
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 w-full">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-ink truncate">
+                          {acc.display_name || acc.email_address}
+                        </p>
+                        <p className="text-xs text-muted font-mono truncate mt-0.5">
+                          {acc.email_address}
+                        </p>
+                      </div>
+                      <div className="flex items-center shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => startEdit(acc)}
+                          className="p-2 text-muted hover:text-accent hover:bg-surface rounded-lg transition-colors"
+                          aria-label="Edit account"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteAccount(acc)}
+                          className="p-2 text-muted hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          aria-label="Remove account"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
