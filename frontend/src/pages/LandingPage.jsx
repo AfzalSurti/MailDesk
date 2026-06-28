@@ -92,7 +92,23 @@ export default function LandingPage() {
       </main>
 
       <footer className="max-w-6xl mx-auto px-6 py-8 mt-12 border-t border-border">
-        <p className="text-sm text-muted">MailDesk — Internal company email tool</p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="text-sm text-muted space-y-1">
+            <p>© 2026 Geo Designs &amp; Research Pvt. Ltd. All rights reserved.</p>
+            <p className="text-xs">MailDesk — Internal company email tool</p>
+          </div>
+          <p className="text-sm text-muted sm:text-right">
+            Made by{" "}
+            <a
+              href="https://www.linkedin.com/in/afzal-surti-9904b2287/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent hover:text-accent-hover font-medium transition-colors"
+            >
+              Afzal N. Surti
+            </a>
+          </p>
+        </div>
       </footer>
     </div>
   );
