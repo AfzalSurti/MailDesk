@@ -1,6 +1,6 @@
 import { ArrowLeft, Mail, X } from "lucide-react";
 import useStore from "../store/useStore";
-import { stripHtml } from "../utils/stripHtml";
+import { sanitizeEmailHtml, stripHtml } from "../utils/stripHtml";
 
 export default function EmailDetail() {
   const { selectedEmail, setSelectedEmail } = useStore();
@@ -19,7 +19,9 @@ export default function EmailDetail() {
     );
   }
 
-  const fullBody = stripHtml(selectedEmail.body || selectedEmail.body_preview);
+  const htmlBody = sanitizeEmailHtml(selectedEmail.body_html);
+  const rawPlain = selectedEmail.body || selectedEmail.body_preview || "";
+  const plainBody = /<[a-z][\s\S]*>/i.test(rawPlain) ? stripHtml(rawPlain) : rawPlain;
 
   return (
     <div className={`${panelClass} border-l border-border`}>
@@ -55,9 +57,16 @@ export default function EmailDetail() {
 
       <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6">
         <div className="max-w-3xl">
-          <p className="text-sm md:text-[15px] text-ink leading-7 whitespace-pre-wrap break-words">
-            {fullBody || "No content available."}
-          </p>
+          {htmlBody ? (
+            <div
+              className="email-body-content"
+              dangerouslySetInnerHTML={{ __html: htmlBody }}
+            />
+          ) : (
+            <p className="text-sm md:text-[15px] text-ink leading-7 whitespace-pre-wrap break-words">
+              {plainBody || "No content available."}
+            </p>
+          )}
         </div>
       </div>
     </div>

@@ -5,7 +5,7 @@ import api from "../lib/axios";
 import useStore from "../store/useStore";
 
 export default function SettingsModal({ onClose }) {
-  const { accounts, setAccounts } = useStore();
+  const { accounts, setAccounts, selectedAccount, setSelectedAccount } = useStore();
   const [email, setEmail] = useState("");
   const [appPassword, setAppPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -21,6 +21,7 @@ export default function SettingsModal({ onClose }) {
         display_name: displayName || undefined,
       });
       setAccounts([...accounts, data]);
+      setSelectedAccount(data);
       toast.success("Gmail account added");
       setEmail("");
       setAppPassword("");
@@ -36,6 +37,10 @@ export default function SettingsModal({ onClose }) {
     try {
       await api.delete(`/accounts/${id}`);
       setAccounts(accounts.filter((a) => a.id !== id));
+      if (selectedAccount?.id === id) {
+        const remaining = accounts.filter((a) => a.id !== id);
+        setSelectedAccount(remaining[0] ?? null);
+      }
       toast.success("Account removed");
     } catch {
       toast.error("Failed to remove account");

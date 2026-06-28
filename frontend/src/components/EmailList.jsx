@@ -40,9 +40,9 @@ export default function EmailList({ onRefresh }) {
     return (
       <EmptyPanel>
         <Mail className="w-10 h-10 mb-3 opacity-30" />
-        <p className="text-sm">No emails loaded yet</p>
+        <p className="text-sm">No emails saved yet</p>
         <button type="button" onClick={onRefresh} className="btn-primary mt-4">
-          Fetch Emails
+          Sync from Gmail
         </button>
       </EmptyPanel>
     );

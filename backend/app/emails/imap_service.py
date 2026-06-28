@@ -1,17 +1,113 @@
 import imaplib
 import email
 from email.header import decode_header
+from html import unescape
+from html.parser import HTMLParser
 import re
-from typing import List, Dict
+from datetime import datetime, timedelta
+from typing import List, Dict, Tuple
 from app.accounts.service import decrypt_password
 
 
-def clean_text(text: str) -> str:
+class _HTMLToText(HTMLParser):
+    """Convert HTML to readable plain text while preserving paragraph breaks."""
+
+    BLOCK_TAGS = frozenset(
+        {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote"}
+    )
+    SKIP_TAGS = frozenset({"script", "style", "head", "meta", "title"})
+
+    def __init__(self):
+        super().__init__()
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.SKIP_TAGS:
+            self._skip_depth += 1
+        elif tag in self.BLOCK_TAGS and not self._skip_depth:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in self.SKIP_TAGS and self._skip_depth:
+            self._skip_depth -= 1
+        elif tag in self.BLOCK_TAGS and not self._skip_depth:
+            self._parts.append("\n")
+
+    def handle_data(self, data):
+        if not self._skip_depth:
+            self._parts.append(data)
+
+    def get_text(self) -> str:
+        return "".join(self._parts)
+
+
+def normalize_plain_text(text: str) -> str:
     if not text:
         return ""
-    # Remove extra whitespace
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
+    lines = [re.sub(r"[^\S\n]+", " ", line).strip() for line in text.splitlines()]
+    text = "\n".join(lines)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def html_to_text(html: str) -> str:
+    if not html:
+        return ""
+    parser = _HTMLToText()
+    try:
+        parser.feed(unescape(html))
+        parser.close()
+    except Exception:
+        return normalize_plain_text(re.sub(r"<[^>]+>", " ", unescape(html)))
+    return normalize_plain_text(parser.get_text())
+
+
+def decode_part(part) -> str:
+    payload = part.get_payload(decode=True)
+    if payload is None:
+        raw = part.get_payload()
+        return raw if isinstance(raw, str) else ""
+    charset = part.get_content_charset() or "utf-8"
+    return payload.decode(charset, errors="ignore")
+
+
+def extract_email_content(msg) -> Tuple[str, str]:
+    """Return (plain_text, html) for an email message."""
+    plain_parts: list[str] = []
+    html_parts: list[str] = []
+
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            disposition = str(part.get("Content-Disposition", ""))
+            if "attachment" in disposition:
+                continue
+            try:
+                if content_type == "text/plain":
+                    plain_parts.append(decode_part(part))
+                elif content_type == "text/html":
+                    html_parts.append(decode_part(part))
+            except Exception:
+                continue
+    else:
+        try:
+            payload = decode_part(msg)
+            content_type = msg.get_content_type()
+            if content_type == "text/html":
+                html_parts.append(payload)
+            else:
+                plain_parts.append(payload)
+        except Exception:
+            pass
+
+    body_html = html_parts[0] if html_parts else ""
+    body_text = normalize_plain_text("\n\n".join(plain_parts)) if plain_parts else ""
+
+    if not body_text and body_html:
+        body_text = html_to_text(body_html)
+
+    return body_text, body_html
 
 
 def decode_mime_header(value: str) -> str:
@@ -27,58 +123,24 @@ def decode_mime_header(value: str) -> str:
     return result
 
 
-def get_email_body(msg) -> str:
-    body = ""
-    if msg.is_multipart():
-        for part in msg.walk():
-            content_type = part.get_content_type()
-            disposition = str(part.get("Content-Disposition", ""))
-            if content_type == "text/plain" and "attachment" not in disposition:
-                try:
-                    body = part.get_payload(decode=True).decode(
-                        part.get_content_charset() or "utf-8", errors="ignore"
-                    )
-                    break
-                except Exception:
-                    continue
-        # fallback to HTML if no plain text
-        if not body:
-            for part in msg.walk():
-                if part.get_content_type() == "text/html":
-                    try:
-                        html = part.get_payload(decode=True).decode(
-                            part.get_content_charset() or "utf-8", errors="ignore"
-                        )
-                        # Strip HTML tags
-                        body = re.sub(r'<[^>]+>', ' ', html)
-                        break
-                    except Exception:
-                        continue
-    else:
-        try:
-            body = msg.get_payload(decode=True).decode(
-                msg.get_content_charset() or "utf-8", errors="ignore"
-            )
-        except Exception:
-            body = ""
-
-    return clean_text(body)
-
-
-def fetch_emails(email_address: str, encrypted_password: str, limit: int = 50) -> List[Dict]:
+def fetch_emails(
+    email_address: str,
+    encrypted_password: str,
+    days: int = 3,
+    limit: int = 200,
+) -> List[Dict]:
     app_password = decrypt_password(encrypted_password)
-    
+
     mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
     mail.login(email_address, app_password)
     mail.select("INBOX")
 
-    # Fetch latest emails
-    _, message_ids = mail.search(None, "ALL")
-    all_ids = message_ids[0].split()
-    
-    # Take last `limit` emails (most recent)
+    since_date = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
+    _, message_ids = mail.search(None, f"(SINCE {since_date})")
+    all_ids = message_ids[0].split() if message_ids[0] else []
+
     selected_ids = all_ids[-limit:] if len(all_ids) > limit else all_ids
-    selected_ids = list(reversed(selected_ids))  # newest first
+    selected_ids = list(reversed(selected_ids))
 
     emails = []
     for uid in selected_ids:
@@ -90,16 +152,20 @@ def fetch_emails(email_address: str, encrypted_password: str, limit: int = 50) -
             subject = decode_mime_header(msg.get("Subject", "(No Subject)"))
             sender = decode_mime_header(msg.get("From", ""))
             date = msg.get("Date", "")
-            body = get_email_body(msg)
+            body_text, body_html = extract_email_content(msg)
+            preview_source = body_text or html_to_text(body_html)
 
-            emails.append({
-                "uid": uid.decode(),
-                "subject": subject,
-                "sender": sender,
-                "date": date,
-                "body_preview": body[:500],
-                "body": body,
-            })
+            emails.append(
+                {
+                    "uid": uid.decode(),
+                    "subject": subject,
+                    "sender": sender,
+                    "date": date,
+                    "body_preview": preview_source[:500],
+                    "body": body_text,
+                    "body_html": body_html,
+                }
+            )
         except Exception:
             continue
 
@@ -114,7 +180,7 @@ def delete_email(email_address: str, encrypted_password: str, uid: str) -> bool:
         mail.login(email_address, app_password)
         mail.select("INBOX")
 
-        mail.store(uid, '+FLAGS', '\\Deleted')
+        mail.store(uid, "+FLAGS", "\\Deleted")
         mail.expunge()
         mail.logout()
         return True

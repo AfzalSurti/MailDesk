@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+const SELECTED_ACCOUNT_KEY = "selectedAccountId";
+
 const useStore = create((set) => ({
   // Auth
   token: localStorage.getItem("token") || null,
@@ -9,6 +11,7 @@ const useStore = create((set) => ({
   },
   logout: () => {
     localStorage.removeItem("token");
+    localStorage.removeItem(SELECTED_ACCOUNT_KEY);
     set({ token: null, selectedAccount: null, emails: [], selectedEmail: null });
   },
 
@@ -16,8 +19,14 @@ const useStore = create((set) => ({
   accounts: [],
   setAccounts: (accounts) => set({ accounts }),
   selectedAccount: null,
-  setSelectedAccount: (account) =>
-    set({ selectedAccount: account, emails: [], selectedEmail: null }),
+  setSelectedAccount: (account) => {
+    if (account?.id) {
+      localStorage.setItem(SELECTED_ACCOUNT_KEY, account.id);
+    } else {
+      localStorage.removeItem(SELECTED_ACCOUNT_KEY);
+    }
+    set({ selectedAccount: account, emails: [], selectedEmail: null });
+  },
 
   // Categories
   categories: [],
@@ -33,3 +42,7 @@ const useStore = create((set) => ({
 }));
 
 export default useStore;
+
+export function getSavedAccountId() {
+  return localStorage.getItem(SELECTED_ACCOUNT_KEY);
+}

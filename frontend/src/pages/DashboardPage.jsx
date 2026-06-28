@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Menu, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
-import useStore from "../store/useStore";
+import useStore, { getSavedAccountId } from "../store/useStore";
 import api from "../lib/axios";
 import Sidebar from "../components/Sidebar";
 import EmailList from "../components/EmailList";
@@ -13,6 +13,7 @@ export default function DashboardPage() {
   const {
     setAccounts,
     setCategories,
+    setSelectedAccount,
     selectedAccount,
     emails,
     emailsLoading,
@@ -34,6 +35,13 @@ export default function DashboardPage() {
         ]);
         setAccounts(accRes.data);
         setCategories(catRes.data);
+
+        const savedId = getSavedAccountId();
+        const restored =
+          accRes.data.find((a) => a.id === savedId) ?? accRes.data[0] ?? null;
+        if (restored) {
+          setSelectedAccount(restored);
+        }
       } catch {
         toast.error("Failed to load data");
       }
@@ -41,16 +49,38 @@ export default function DashboardPage() {
     load();
   }, []);
 
-  const fetchEmails = async () => {
+  const loadStoredEmails = async (accountId) => {
+    setEmailsLoading(true);
+    try {
+      const res = await api.get(`/emails/${accountId}`);
+      setEmails(res.data.emails || []);
+    } catch {
+      toast.error("Failed to load saved emails");
+      setEmails([]);
+    } finally {
+      setEmailsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedAccount) {
+      setEmails([]);
+      return;
+    }
+    setSelectedEmail(null);
+    loadStoredEmails(selectedAccount.id);
+  }, [selectedAccount?.id]);
+
+  const syncEmails = async () => {
     if (!selectedAccount) return;
     setSelectedEmail(null);
     setEmailsLoading(true);
     try {
-      const res = await api.get(`/emails/${selectedAccount.id}`);
+      const res = await api.post(`/emails/${selectedAccount.id}/sync`);
       setEmails(res.data.emails || []);
-      toast.success(`Loaded ${res.data.emails?.length || 0} emails`);
+      toast.success(`Synced ${res.data.emails?.length || 0} emails from the last 3 days`);
     } catch {
-      toast.error("Failed to fetch emails");
+      toast.error("Failed to sync emails from Gmail");
     } finally {
       setEmailsLoading(false);
     }
@@ -97,7 +127,7 @@ export default function DashboardPage() {
                   </p>
                 )}
                 {selectedAccount && emails.length > 0 && (
-                  <p className="text-xs text-muted mt-1">{emails.length} emails loaded</p>
+                  <p className="text-xs text-muted mt-1">{emails.length} emails saved</p>
                 )}
               </div>
             </div>
@@ -113,12 +143,12 @@ export default function DashboardPage() {
               {selectedAccount && (
                 <button
                   type="button"
-                  onClick={fetchEmails}
+                  onClick={syncEmails}
                   disabled={emailsLoading}
                   className="btn-primary inline-flex items-center gap-2"
                 >
                   {emailsLoading && <RefreshCw className="w-4 h-4 animate-spin" />}
-                  {emailsLoading ? "Fetching..." : "Fetch"}
+                  {emailsLoading ? "Syncing..." : "Sync"}
                 </button>
               )}
             </div>
@@ -136,7 +166,7 @@ export default function DashboardPage() {
         </header>
 
         <div className="flex-1 flex overflow-hidden min-h-0">
-          <EmailList onRefresh={fetchEmails} />
+          <EmailList onRefresh={syncEmails} />
           <EmailDetail />
         </div>
       </div>

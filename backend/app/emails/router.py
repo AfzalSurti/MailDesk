@@ -9,7 +9,8 @@ from app.auth.utils import get_current_user
 from app.categories.models import Category
 from app.database import get_db
 from app.emails.ai_service import classify_email
-from app.emails.imap_service import fetch_emails
+from app.emails.models import EmailMessage
+from app.emails.sync_service import list_account_emails, sync_account_emails
 
 router = APIRouter()
 
@@ -21,6 +22,7 @@ class EmailItem(BaseModel):
     date: str
     body_preview: str
     body: str
+    body_html: str = ""
 
 
 class SyncResponse(BaseModel):
@@ -40,23 +42,31 @@ class CategorizeResponse(BaseModel):
     category: dict | None
 
 
-def _to_email_items(raw_emails: list[dict]) -> list[EmailItem]:
-    return [
-        EmailItem(
-            id=e["uid"],
-            from_address=e["sender"],
-            subject=e["subject"],
-            date=e["date"],
-            body_preview=e["body_preview"],
-            body=e["body"],
-        )
-        for e in raw_emails
-    ]
+def _to_email_item(record: EmailMessage) -> EmailItem:
+    return EmailItem(
+        id=record.gmail_uid,
+        from_address=record.from_address,
+        subject=record.subject,
+        date=record.date_header,
+        body_preview=record.body_preview,
+        body=record.body,
+        body_html=record.body_html or "",
+    )
+
+
+async def _get_account_or_404(db: AsyncSession, account_id: uuid.UUID) -> GmailAccount:
+    result = await db.execute(
+        select(GmailAccount).where(GmailAccount.id == account_id)
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    return account
 
 
 @router.get("/sync", response_model=list[SyncResponse])
 async def sync_all_accounts(
-    limit: int = 5,
+    days: int = 3,
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ):
@@ -71,13 +81,13 @@ async def sync_all_accounts(
 
     responses = []
     for account in accounts:
-        emails = fetch_emails(account.email_address, account.app_password, limit=limit)
+        stored = await sync_account_emails(db, account, days=days)
         responses.append(
             SyncResponse(
                 account_id=account.id,
                 email_address=account.email_address,
-                count=len(emails),
-                emails=_to_email_items(emails),
+                count=len(stored),
+                emails=[_to_email_item(e) for e in stored],
             )
         )
 
@@ -85,26 +95,44 @@ async def sync_all_accounts(
 
 
 @router.get("/{account_id}", response_model=SyncResponse)
-async def fetch_account_emails(
+async def list_stored_account_emails(
     account_id: uuid.UUID,
-    limit: int = 10,
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(GmailAccount).where(GmailAccount.id == account_id)
-    )
-    account = result.scalar_one_or_none()
-    if not account:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-
-    emails = fetch_emails(account.email_address, account.app_password, limit=limit)
+    account = await _get_account_or_404(db, account_id)
+    stored = await list_account_emails(db, account_id)
 
     return SyncResponse(
         account_id=account.id,
         email_address=account.email_address,
-        count=len(emails),
-        emails=_to_email_items(emails),
+        count=len(stored),
+        emails=[_to_email_item(e) for e in stored],
+    )
+
+
+@router.post("/{account_id}/sync", response_model=SyncResponse)
+async def sync_account_emails_endpoint(
+    account_id: uuid.UUID,
+    days: int = 3,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+):
+    account = await _get_account_or_404(db, account_id)
+
+    try:
+        stored = await sync_account_emails(db, account, days=days)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to sync emails from Gmail: {exc}",
+        ) from exc
+
+    return SyncResponse(
+        account_id=account.id,
+        email_address=account.email_address,
+        count=len(stored),
+        emails=[_to_email_item(e) for e in stored],
     )
 
 

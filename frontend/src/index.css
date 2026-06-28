@@ -36,4 +36,32 @@ body {
   .modal-panel {
     @apply bg-card rounded-2xl w-full max-w-lg shadow-xl border border-border;
   }
+
+  .email-body-content {
+    @apply text-sm md:text-[15px] text-ink leading-relaxed break-words;
+  }
+
+  .email-body-content p,
+  .email-body-content div {
+    @apply mb-3;
+  }
+
+  .email-body-content a {
+    @apply text-accent underline break-all;
+  }
+
+  .email-body-content img {
+    @apply max-w-full h-auto rounded-lg my-3;
+  }
+
+  .email-body-content ul,
+  .email-body-content ol {
+    @apply my-3 pl-5 list-disc;
+  }
+
+  .email-body-content h1,
+  .email-body-content h2,
+  .email-body-content h3 {
+    @apply font-semibold text-ink mt-4 mb-2;
+  }
 }
