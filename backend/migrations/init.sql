@@ -2,8 +2,10 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL DEFAULT '',
     email VARCHAR(255) UNIQUE NOT NULL,
-    hashed_password VARCHAR(255) NOT NULL,
+    hashed_password VARCHAR(255),
+    google_id VARCHAR(255) UNIQUE,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -82,8 +84,9 @@ INSERT INTO categories (name, priority, description, keywords) VALUES
 
 -- Insert default admin user (change password after first login)
 -- Password: admin123
-INSERT INTO users (email, hashed_password)
+INSERT INTO users (name, email, hashed_password)
 VALUES (
+    'Admin',
     'admin@company.com',
     '$2b$12$X8M6J1c7fxMcC3JJXvAJP.POuId25Tt9LY5BiwKtyoGDtq8Pmumpm'
 );

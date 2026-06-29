@@ -5,7 +5,7 @@ import { getInitials } from "../utils/format";
 import EmptyState from "./ui/EmptyState";
 
 export default function Sidebar({ open, onClose, onSettingsOpen }) {
-  const { accounts, selectedAccount, setSelectedAccount, logout } = useStore();
+  const { accounts, selectedAccount, setSelectedAccount, logout, user } = useStore();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -127,6 +127,12 @@ export default function Sidebar({ open, onClose, onSettingsOpen }) {
       </div>
 
       <div className="border-t border-white/10 p-3 space-y-0.5">
+        {user && (
+          <div className="px-3 py-2 mb-1">
+            <p className="text-xs font-medium text-white truncate">{user.name}</p>
+            <p className="text-[10px] text-white/40 font-mono truncate">{user.email}</p>
+          </div>
+        )}
         <Link to="/" onClick={onClose} className="sidebar-nav-link">
           <Home className="w-4 h-4" />
           Home

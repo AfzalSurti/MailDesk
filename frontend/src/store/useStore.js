@@ -2,18 +2,39 @@ import { create } from "zustand";
 
 const SELECTED_ACCOUNT_KEY = "selectedAccountId";
 
+const USER_KEY = "user";
+
 const useStore = create((set) => ({
   // Auth
   token: localStorage.getItem("token") || null,
+  user: (() => {
+    try {
+      const raw = localStorage.getItem(USER_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })(),
+  setAuth: (token, user) => {
+    localStorage.setItem("token", token);
+    if (user) {
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(USER_KEY);
+    }
+    set({ token, user: user ?? null });
+  },
   setToken: (token) => {
     localStorage.setItem("token", token);
     set({ token });
   },
   logout: () => {
     localStorage.removeItem("token");
+    localStorage.removeItem(USER_KEY);
     localStorage.removeItem(SELECTED_ACCOUNT_KEY);
     set({
       token: null,
+      user: null,
       selectedAccount: null,
       emails: [],
       selectedEmailId: null,

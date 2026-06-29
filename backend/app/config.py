@@ -20,11 +20,18 @@ class Settings(BaseSettings):
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
     FRONTEND_URL: str
+    BACKEND_URL: str = "http://localhost:8000"
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
     DEBUG: bool = False
 
     @property
     def frontend_origins(self) -> list[str]:
         return parse_frontend_origins(self.FRONTEND_URL)
+
+    @property
+    def google_redirect_uri(self) -> str:
+        return f"{self.BACKEND_URL.rstrip('/')}/auth/google/callback"
 
     class Config:
         env_file = ".env"

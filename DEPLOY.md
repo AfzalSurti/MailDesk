@@ -12,17 +12,21 @@ Repo: `https://github.com/AfzalSurti/MailDesk`
 
 ## 1. Database (Neon)
 
-If you already used this DB locally, skip this.
+If you already used this DB locally, run the latest migration instead of full init:
 
-1. Open your Neon project → **SQL Editor**.
-2. Paste and run everything in `backend/migrations/init.sql`.
-3. Copy your connection string and change it to async format:
+```
+backend/migrations/add_user_auth_fields.sql
+```
 
-   ```
-   postgresql+asyncpg://USER:PASSWORD@HOST/DBNAME?sslmode=require
-   ```
+For a **new** database, run `backend/migrations/init.sql`.
 
-   (Replace `postgresql://` with `postgresql+asyncpg://` if Neon gives the sync URL.)
+Copy your connection string and use async format:
+
+```
+postgresql+asyncpg://USER:PASSWORD@HOST/DBNAME?sslmode=require
+```
+
+(Replace `postgresql://` with `postgresql+asyncpg://` if Neon gives the sync URL.)
 
 ---
 
@@ -72,6 +76,9 @@ git push origin main
    | `OPENROUTER_MODEL` | `openai/gpt-4o-mini` |
    | `DEBUG` | `false` |
    | `FRONTEND_URL` | Your Vercel URL — **exact match**, e.g. `https://mail-desk-one.vercel.app` (no trailing `/`) |
+   | `BACKEND_URL` | Your Render API URL, e.g. `https://maildesk-sk5r.onrender.com` |
+   | `GOOGLE_CLIENT_ID` | From Google Cloud Console OAuth client |
+   | `GOOGLE_CLIENT_SECRET` | From Google Cloud Console OAuth client |
 
 5. Click **Create Web Service** and wait for deploy.
 6. Copy your API URL, e.g. `https://maildesk-api.onrender.com`.

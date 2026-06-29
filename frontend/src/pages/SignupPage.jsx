@@ -6,7 +6,8 @@ import useStore from "../store/useStore";
 import AuthLayout from "../components/auth/AuthLayout";
 import GoogleSignInButton from "../components/auth/GoogleSignInButton";
 
-export default function LoginPage() {
+export default function SignupPage() {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -16,34 +17,48 @@ export default function LoginPage() {
 
   if (token) return <Navigate to="/dashboard" replace />;
 
-  const handleLogin = async (e) => {
+  const handleSignup = async (e) => {
     e.preventDefault();
-    if (!email || !password) {
+    if (!name.trim() || !email || !password) {
       toast.error("Please fill in all fields");
+      return;
+    }
+    if (password.length < 8) {
+      toast.error("Password must be at least 8 characters");
       return;
     }
 
     setLoading(true);
     try {
-      const form = new URLSearchParams();
-      form.append("username", email);
-      form.append("password", password);
-      const { data } = await api.post("/auth/login", form, {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      const { data } = await api.post("/auth/signup", {
+        name: name.trim(),
+        email,
+        password,
       });
       setAuth(data.access_token, data.user);
-      toast.success(`Welcome back${data.user?.name ? `, ${data.user.name}` : ""}!`);
+      toast.success(`Welcome, ${data.user.name}!`);
       navigate("/dashboard");
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Login failed");
+      toast.error(err.response?.data?.detail || "Sign up failed");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <AuthLayout title="MailDesk" subtitle="Sign in to your workspace">
-      <form onSubmit={handleLogin} className="space-y-4">
+    <AuthLayout title="Create account" subtitle="Sign up with your Gmail and a password">
+      <form onSubmit={handleSignup} className="space-y-4">
+        <div>
+          <label className="field-label">Full name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Afzal Surti"
+            className="input-field"
+            required
+          />
+        </div>
         <div>
           <label className="field-label">Gmail address</label>
           <input
@@ -61,13 +76,14 @@ export default function LoginPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
+            placeholder="At least 8 characters"
             className="input-field"
+            minLength={8}
             required
           />
         </div>
         <button type="submit" disabled={loading} className="btn-primary w-full font-semibold py-2.5">
-          {loading ? "Signing in..." : "Sign In"}
+          {loading ? "Creating account..." : "Sign Up"}
         </button>
       </form>
 
@@ -83,9 +99,9 @@ export default function LoginPage() {
       <GoogleSignInButton disabled={loading} />
 
       <p className="text-center text-sm text-muted mt-6">
-        Don&apos;t have an account?{" "}
-        <Link to="/signup" className="text-accent hover:text-accent-hover font-medium">
-          Sign up
+        Already have an account?{" "}
+        <Link to="/login" className="text-accent hover:text-accent-hover font-medium">
+          Sign in
         </Link>
       </p>
     </AuthLayout>
