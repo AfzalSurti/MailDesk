@@ -6,8 +6,9 @@ import useStore from "../store/useStore";
 
 const ERROR_MESSAGES = {
   google_denied: "Google sign-in was cancelled",
-  google_failed: "Google sign-in failed. Try again.",
+  google_failed: "Google sign-in failed. Check redirect URI in Google Console.",
   account_conflict: "This email is linked to a different Google account",
+  server_error: "Server error during sign-in. Database migration may be required.",
 };
 
 export default function AuthCallbackPage() {

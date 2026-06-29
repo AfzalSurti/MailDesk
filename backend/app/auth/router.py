@@ -102,33 +102,35 @@ async def google_callback(
 
     try:
         profile = await exchange_code_for_user(code)
+
+        result = await db.execute(select(User).where(User.email == profile["email"]))
+        user = result.scalar_one_or_none()
+
+        if user:
+            if user.google_id and user.google_id != profile["google_id"]:
+                return RedirectResponse(url=f"{frontend}/auth/callback?error=account_conflict")
+            if not user.google_id:
+                user.google_id = profile["google_id"]
+            if not (user.name or "").strip():
+                user.name = profile["name"]
+        else:
+            user = User(
+                name=profile["name"],
+                email=profile["email"],
+                google_id=profile["google_id"],
+                hashed_password=None,
+            )
+            db.add(user)
+
+        await db.commit()
+        await db.refresh(user)
+
+        token = create_access_token({"sub": user.email})
+        return RedirectResponse(url=f"{frontend}/auth/callback?token={token}")
     except HTTPException:
         return RedirectResponse(url=f"{frontend}/auth/callback?error=google_failed")
-
-    result = await db.execute(select(User).where(User.email == profile["email"]))
-    user = result.scalar_one_or_none()
-
-    if user:
-        if user.google_id and user.google_id != profile["google_id"]:
-            return RedirectResponse(url=f"{frontend}/auth/callback?error=account_conflict")
-        if not user.google_id:
-            user.google_id = profile["google_id"]
-        if not user.name.strip():
-            user.name = profile["name"]
-    else:
-        user = User(
-            name=profile["name"],
-            email=profile["email"],
-            google_id=profile["google_id"],
-            hashed_password=None,
-        )
-        db.add(user)
-
-    await db.commit()
-    await db.refresh(user)
-
-    token = create_access_token({"sub": user.email})
-    return RedirectResponse(url=f"{frontend}/auth/callback?token={token}")
+    except Exception:
+        return RedirectResponse(url=f"{frontend}/auth/callback?error=server_error")
 
 
 @router.get("/google/status")
