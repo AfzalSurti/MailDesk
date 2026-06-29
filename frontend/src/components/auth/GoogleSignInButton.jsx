@@ -1,7 +1,46 @@
+import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
+import api from "../../lib/axios";
+
 export default function GoogleSignInButton({ disabled }) {
-  const handleClick = () => {
+  const [enabled, setEnabled] = useState(null);
+
+  useEffect(() => {
+    api
+      .get("/auth/google/status")
+      .then((res) => setEnabled(res.data.enabled === true))
+      .catch(() => setEnabled(false));
+  }, []);
+
+  const handleClick = async () => {
+    if (!enabled) {
+      toast.error(
+        "Google sign-in is not set up on the server. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on Render, then redeploy."
+      );
+      return;
+    }
     window.location.href = `${import.meta.env.VITE_API_URL}/auth/google`;
   };
+
+  if (enabled === null) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="w-full px-4 py-2.5 border border-border rounded-lg bg-white text-sm text-muted"
+      >
+        Loading Google sign-in...
+      </button>
+    );
+  }
+
+  if (!enabled) {
+    return (
+      <p className="text-xs text-center text-muted leading-relaxed">
+        Google sign-in is not configured yet. Ask your admin to add OAuth keys on Render.
+      </p>
+    );
+  }
 
   return (
     <button

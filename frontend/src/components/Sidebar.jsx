@@ -9,6 +9,9 @@ export default function Sidebar({ open, onClose, onSettingsOpen }) {
   const navigate = useNavigate();
 
   const handleLogout = () => {
+    if (!window.confirm("Are you sure you want to log out?")) {
+      return;
+    }
     logout();
     navigate("/login");
   };

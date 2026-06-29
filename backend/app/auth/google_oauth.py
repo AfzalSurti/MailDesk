@@ -1,3 +1,4 @@
+import os
 from urllib.parse import urlencode
 
 import httpx
@@ -11,8 +12,25 @@ GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 GOOGLE_SCOPES = "openid email profile"
 
 
+def get_google_client_id() -> str:
+    return (os.getenv("GOOGLE_CLIENT_ID") or os.getenv("CLIENT_ID") or "").strip()
+
+
+def get_google_client_secret() -> str:
+    return (os.getenv("GOOGLE_CLIENT_SECRET") or os.getenv("CLIENT_SECRET") or "").strip()
+
+
 def google_oauth_configured() -> bool:
-    return bool(settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET)
+    return bool(get_google_client_id() and get_google_client_secret())
+
+
+def google_oauth_debug() -> dict:
+    return {
+        "enabled": google_oauth_configured(),
+        "has_client_id": bool(get_google_client_id()),
+        "has_client_secret": bool(get_google_client_secret()),
+        "redirect_uri": settings.google_redirect_uri,
+    }
 
 
 def build_google_auth_url() -> str:
@@ -20,7 +38,7 @@ def build_google_auth_url() -> str:
         raise HTTPException(status_code=503, detail="Google sign-in is not configured")
 
     params = {
-        "client_id": settings.GOOGLE_CLIENT_ID,
+        "client_id": get_google_client_id(),
         "redirect_uri": settings.google_redirect_uri,
         "response_type": "code",
         "scope": GOOGLE_SCOPES,
@@ -39,8 +57,8 @@ async def exchange_code_for_user(code: str) -> dict:
             GOOGLE_TOKEN_URL,
             data={
                 "code": code,
-                "client_id": settings.GOOGLE_CLIENT_ID,
-                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "client_id": get_google_client_id(),
+                "client_secret": get_google_client_secret(),
                 "redirect_uri": settings.google_redirect_uri,
                 "grant_type": "authorization_code",
             },

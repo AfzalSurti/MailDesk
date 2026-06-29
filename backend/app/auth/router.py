@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.google_oauth import (
     build_google_auth_url,
     exchange_code_for_user,
-    google_oauth_configured,
+    google_oauth_debug,
 )
 from app.auth.models import User
 from app.auth.utils import create_access_token, get_current_user, hash_password, verify_password
@@ -133,7 +133,7 @@ async def google_callback(
 
 @router.get("/google/status")
 async def google_status():
-    return {"enabled": google_oauth_configured()}
+    return google_oauth_debug()
 
 
 @router.get("/me", response_model=UserResponse)

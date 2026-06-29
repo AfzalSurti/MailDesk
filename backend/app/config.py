@@ -1,4 +1,5 @@
-from pydantic_settings import BaseSettings
+from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def parse_frontend_origins(value: str) -> list[str]:
@@ -11,6 +12,12 @@ def parse_frontend_origins(value: str) -> list[str]:
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        populate_by_name=True,
+    )
+
     DATABASE_URL: str
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
@@ -21,8 +28,14 @@ class Settings(BaseSettings):
     OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
     FRONTEND_URL: str
     BACKEND_URL: str = "http://localhost:8000"
-    GOOGLE_CLIENT_ID: str = ""
-    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_CLIENT_ID: str = Field(
+        default="",
+        validation_alias=AliasChoices("GOOGLE_CLIENT_ID", "CLIENT_ID"),
+    )
+    GOOGLE_CLIENT_SECRET: str = Field(
+        default="",
+        validation_alias=AliasChoices("GOOGLE_CLIENT_SECRET", "CLIENT_SECRET"),
+    )
     DEBUG: bool = False
 
     @property
@@ -32,9 +45,6 @@ class Settings(BaseSettings):
     @property
     def google_redirect_uri(self) -> str:
         return f"{self.BACKEND_URL.rstrip('/')}/auth/google/callback"
-
-    class Config:
-        env_file = ".env"
 
 
 settings = Settings()
