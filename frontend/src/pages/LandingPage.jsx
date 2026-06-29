@@ -109,9 +109,17 @@ export default function LandingPage() {
 
       <footer className="max-w-6xl mx-auto px-6 py-8 mt-12 border-t border-border">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="text-sm text-muted space-y-1">
-            <p>© 2026 Geo Designs &amp; Research Pvt. Ltd. All rights reserved.</p>
-            <p className="text-xs">MailDesk — Internal company email tool</p>
+          <div className="flex items-start gap-3">
+            <img
+              src="/geo-logo.png"
+              alt="Geo Designs & Research"
+              className="w-10 h-10 object-contain shrink-0 mt-0.5"
+            />
+            <div className="text-sm text-muted space-y-1">
+              <p className="font-medium text-ink">Geo Designs &amp; Research Pvt. Ltd.</p>
+              <p>© 2026 All rights reserved.</p>
+              <p className="text-xs">MailDesk — Internal company email tool</p>
+            </div>
           </div>
           <p className="text-sm text-muted sm:text-right">
             Made by{" "}

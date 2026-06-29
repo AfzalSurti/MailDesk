@@ -10,12 +10,14 @@ import SignupPage from "./pages/SignupPage";
 import AuthCallbackPage from "./pages/AuthCallbackPage";
 import DashboardPage from "./pages/DashboardPage";
 import ProtectedRoute from "./components/ProtectedRoute";
+import BackendGate from "./components/BackendGate";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <Toaster position="top-right" />
-      <Routes>
+    <BackendGate>
+      <BrowserRouter>
+        <Toaster position="top-right" />
+        <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
@@ -29,7 +31,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           }
         />
         <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-    </BrowserRouter>
+        </Routes>
+      </BrowserRouter>
+    </BackendGate>
   </React.StrictMode>
 );
