@@ -4,7 +4,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 
+from app.accounts.deps import get_user_gmail_account
 from app.accounts.models import GmailAccount
+from app.auth.models import User
 from app.auth.utils import get_current_user
 from app.categories.models import Category
 from app.database import get_db
@@ -65,23 +67,25 @@ def _to_email_item(record: EmailMessage) -> EmailItem:
     )
 
 
-async def _get_account_or_404(db: AsyncSession, account_id: uuid.UUID) -> GmailAccount:
-    result = await db.execute(
-        select(GmailAccount).where(GmailAccount.id == account_id)
-    )
-    account = result.scalar_one_or_none()
-    if not account:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
-    return account
+async def _get_account_or_404(
+    db: AsyncSession,
+    user: User,
+    account_id: uuid.UUID,
+) -> GmailAccount:
+    return await get_user_gmail_account(db, user, account_id)
 
 
 @router.get("/sync", response_model=list[SyncResponse])
 async def sync_all_accounts(
     days: int = 3,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(GmailAccount).order_by(GmailAccount.created_at))
+    result = await db.execute(
+        select(GmailAccount)
+        .where(GmailAccount.user_id == user.id)
+        .order_by(GmailAccount.created_at)
+    )
     accounts = result.scalars().all()
 
     if not accounts:
@@ -109,9 +113,9 @@ async def sync_all_accounts(
 async def list_stored_account_emails(
     account_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    account = await _get_account_or_404(db, account_id)
+    account = await _get_account_or_404(db, user, account_id)
     stored = await list_account_emails(db, account_id)
 
     return SyncResponse(
@@ -127,9 +131,9 @@ async def sync_account_emails_endpoint(
     account_id: uuid.UUID,
     days: int = 3,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    account = await _get_account_or_404(db, account_id)
+    account = await _get_account_or_404(db, user, account_id)
 
     try:
         stored = await sync_account_emails(db, account, days=days)
@@ -158,12 +162,12 @@ async def sync_account_emails_endpoint(
 async def recategorize_all_emails_endpoint(
     account_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    account = await _get_account_or_404(db, account_id)
+    account = await _get_account_or_404(db, user, account_id)
 
     try:
-        stored = await recategorize_all_emails(db, account_id)
+        stored = await recategorize_all_emails(db, account)
     except ClassificationAPIError as exc:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED
@@ -192,11 +196,11 @@ async def categorize_stored_email_endpoint(
     account_id: uuid.UUID,
     gmail_uid: str,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    await _get_account_or_404(db, account_id)
+    await _get_account_or_404(db, user, account_id)
     try:
-        matched = await categorize_stored_email(db, account_id, gmail_uid)
+        matched = await categorize_stored_email(db, account_id, gmail_uid, user.id)
     except ClassificationAPIError as exc:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED
@@ -218,9 +222,13 @@ async def categorize_stored_email_endpoint(
 async def categorize_email_endpoint(
     body: CategorizeRequest,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Category).order_by(Category.created_at))
+    result = await db.execute(
+        select(Category)
+        .where(Category.user_id == user.id)
+        .order_by(Category.created_at)
+    )
     categories = result.scalars().all()
 
     category_payload = [

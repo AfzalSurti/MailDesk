@@ -22,7 +22,18 @@ const useStore = create((set) => ({
     } else {
       localStorage.removeItem(USER_KEY);
     }
-    set({ token, user: user ?? null });
+    localStorage.removeItem(SELECTED_ACCOUNT_KEY);
+    set({
+      token,
+      user: user ?? null,
+      accounts: [],
+      categories: [],
+      selectedAccount: null,
+      emails: [],
+      selectedEmailId: null,
+      emailsSyncing: false,
+      emailsRecategorizing: false,
+    });
   },
   setToken: (token) => {
     localStorage.setItem("token", token);
@@ -35,6 +46,8 @@ const useStore = create((set) => ({
     set({
       token: null,
       user: null,
+      accounts: [],
+      categories: [],
       selectedAccount: null,
       emails: [],
       selectedEmailId: null,

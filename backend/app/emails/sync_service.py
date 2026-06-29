@@ -31,8 +31,12 @@ def sanitize_text(value: str | None) -> str:
     return value.replace("\x00", "")
 
 
-async def _load_categories(db: AsyncSession) -> list[dict]:
-    result = await db.execute(select(Category).order_by(Category.created_at))
+async def _load_categories(db: AsyncSession, user_id) -> list[dict]:
+    result = await db.execute(
+        select(Category)
+        .where(Category.user_id == user_id)
+        .order_by(Category.created_at)
+    )
     categories = result.scalars().all()
     return [
         {
@@ -114,6 +118,7 @@ async def categorize_stored_email(
     db: AsyncSession,
     account_id: uuid.UUID,
     gmail_uid: str,
+    user_id,
 ) -> dict:
     result = await db.execute(
         select(EmailMessage).where(
@@ -125,7 +130,7 @@ async def categorize_stored_email(
     if not email:
         raise ValueError("Email not found")
 
-    categories = await _load_categories(db)
+    categories = await _load_categories(db, user_id)
     if not categories:
         raise ValueError("No categories configured")
 
@@ -145,16 +150,16 @@ async def categorize_stored_email(
 
 async def _categorize_account_emails(
     db: AsyncSession,
-    account_id: uuid.UUID,
+    account: GmailAccount,
     gmail_uids: set[str],
 ) -> None:
-    categories = await _load_categories(db)
+    categories = await _load_categories(db, account.user_id)
     if not categories or not gmail_uids:
         return
 
     result = await db.execute(
         select(EmailMessage).where(
-            EmailMessage.account_id == account_id,
+            EmailMessage.account_id == account.id,
             EmailMessage.gmail_uid.in_(gmail_uids),
             or_(
                 EmailMessage.category_name.is_(None),
@@ -170,10 +175,10 @@ async def _categorize_account_emails(
             sender=email.from_address,
             body_preview=email.body_preview,
             categories=categories,
-            account_id=str(account_id),
+            account_id=str(account.id),
             uid=email.gmail_uid,
         )
-        await _save_category(db, account_id, email.gmail_uid, classification)
+        await _save_category(db, account.id, email.gmail_uid, classification)
         await db.commit()
 
 
@@ -206,22 +211,22 @@ async def sync_account_emails(
         await db.commit()
 
     # Phase 2: apply AI categorization after all emails are stored
-    await _categorize_account_emails(db, account.id, fetched_uids)
+    await _categorize_account_emails(db, account, fetched_uids)
 
     return await list_account_emails(db, account.id)
 
 
 async def recategorize_all_emails(
     db: AsyncSession,
-    account_id: uuid.UUID,
+    account: GmailAccount,
 ) -> list[EmailMessage]:
-    categories = await _load_categories(db)
+    categories = await _load_categories(db, account.user_id)
     if not categories:
         raise ValueError("No categories configured")
 
     result = await db.execute(
         select(EmailMessage)
-        .where(EmailMessage.account_id == account_id)
+        .where(EmailMessage.account_id == account.id)
         .order_by(
             EmailMessage.received_at.desc().nullslast(),
             EmailMessage.synced_at.desc(),
@@ -235,11 +240,11 @@ async def recategorize_all_emails(
             sender=email.from_address,
             body_preview=email.body_preview,
             categories=categories,
-            account_id=str(account_id),
+            account_id=str(account.id),
             uid=email.gmail_uid,
             force=True,
         )
-        await _save_category(db, account_id, email.gmail_uid, classification)
+        await _save_category(db, account.id, email.gmail_uid, classification)
         await db.commit()
 
-    return await list_account_emails(db, account_id)
+    return await list_account_emails(db, account.id)

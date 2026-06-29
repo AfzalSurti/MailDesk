@@ -7,21 +7,24 @@ import uuid
 
 from app.database import get_db
 from app.accounts.models import GmailAccount
-from app.accounts.service import encrypt_password, decrypt_password, test_imap_connection
+from app.accounts.deps import get_user_gmail_account
+from app.accounts.service import encrypt_password, test_imap_connection
+from app.auth.models import User
 from app.auth.utils import get_current_user
 
 router = APIRouter()
 
-# ---------- Schemas ----------
 
 class AccountCreate(BaseModel):
     email_address: EmailStr
     app_password: str
     display_name: Optional[str] = None
 
+
 class AccountUpdate(BaseModel):
     display_name: Optional[str] = None
     app_password: Optional[str] = None
+
 
 class AccountResponse(BaseModel):
     id: uuid.UUID
@@ -31,43 +34,47 @@ class AccountResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# ---------- Routes ----------
 
 @router.get("/", response_model=list[AccountResponse])
 async def get_accounts(
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(GmailAccount).order_by(GmailAccount.created_at))
-    accounts = result.scalars().all()
-    return accounts
+    result = await db.execute(
+        select(GmailAccount)
+        .where(GmailAccount.user_id == user.id)
+        .order_by(GmailAccount.created_at)
+    )
+    return result.scalars().all()
 
 
 @router.post("/", response_model=AccountResponse, status_code=status.HTTP_201_CREATED)
 async def add_account(
     body: AccountCreate,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
-    # Check duplicate
     result = await db.execute(
-        select(GmailAccount).where(GmailAccount.email_address == body.email_address)
+        select(GmailAccount).where(
+            GmailAccount.user_id == user.id,
+            GmailAccount.email_address == body.email_address,
+        )
     )
     if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Account already exists")
+        raise HTTPException(status_code=400, detail="Account already exists in your workspace")
 
-    # Test IMAP before saving
     valid = test_imap_connection(body.email_address, body.app_password)
     if not valid:
         raise HTTPException(
             status_code=400,
-            detail="Could not connect to Gmail. Check email and app password."
+            detail="Could not connect to Gmail. Check email and app password.",
         )
 
     account = GmailAccount(
+        user_id=user.id,
         email_address=body.email_address,
         app_password=encrypt_password(body.app_password),
-        display_name=body.display_name
+        display_name=body.display_name,
     )
     db.add(account)
     await db.commit()
@@ -79,15 +86,9 @@ async def add_account(
 async def delete_account(
     account_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(GmailAccount).where(GmailAccount.id == account_id)
-    )
-    account = result.scalar_one_or_none()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
-
+    account = await get_user_gmail_account(db, user, account_id)
     await db.delete(account)
     await db.commit()
 
@@ -97,14 +98,9 @@ async def update_account(
     account_id: uuid.UUID,
     body: AccountUpdate,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(GmailAccount).where(GmailAccount.id == account_id)
-    )
-    account = result.scalar_one_or_none()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = await get_user_gmail_account(db, user, account_id)
 
     if body.display_name is not None:
         account.display_name = body.display_name.strip() or None

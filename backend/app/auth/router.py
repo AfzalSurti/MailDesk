@@ -5,6 +5,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.defaults import seed_default_categories
 from app.auth.google_oauth import (
     build_google_auth_url,
     exchange_code_for_user,
@@ -61,6 +62,8 @@ async def signup(body: SignupRequest, db: AsyncSession = Depends(get_db)):
         hashed_password=hash_password(body.password),
     )
     db.add(user)
+    await db.flush()
+    await seed_default_categories(db, user.id)
     await db.commit()
     await db.refresh(user)
     return auth_response(user)
@@ -121,6 +124,8 @@ async def google_callback(
                 hashed_password=None,
             )
             db.add(user)
+            await db.flush()
+            await seed_default_categories(db, user.id)
 
         await db.commit()
         await db.refresh(user)
@@ -139,12 +144,5 @@ async def google_status():
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(
-    db: AsyncSession = Depends(get_db),
-    current: dict = Depends(get_current_user),
-):
-    result = await db.execute(select(User).where(User.email == current["email"]))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+async def get_me(user: User = Depends(get_current_user)):
     return user

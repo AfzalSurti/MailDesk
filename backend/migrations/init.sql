@@ -11,21 +11,25 @@ CREATE TABLE users (
 
 CREATE TABLE gmail_accounts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email_address VARCHAR(255) UNIQUE NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email_address VARCHAR(255) NOT NULL,
     app_password VARCHAR(500) NOT NULL,
     display_name VARCHAR(255),
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (user_id, email_address)
 );
 
 CREATE TYPE priority_enum AS ENUM ('high', 'medium', 'low');
 
 CREATE TABLE categories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     priority priority_enum NOT NULL DEFAULT 'low',
     description TEXT,
     keywords TEXT[],
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (user_id, name)
 );
 
 CREATE TABLE emails (
@@ -49,39 +53,6 @@ CREATE TABLE emails (
 
 CREATE INDEX idx_emails_account_received ON emails (account_id, received_at DESC NULLS LAST);
 
--- Default categories for AI classification
-INSERT INTO categories (name, priority, description, keywords) VALUES
-(
-    'Job Opportunities',
-    'high',
-    'Job alerts, internships, career tips, recruitment and hiring emails. NOT security codes or 2FA emails.',
-    ARRAY['job alert', 'career', 'intern', 'hiring', 'vacancy', 'resume', 'recruiter', 'interview', 'apply now']
-),
-(
-    'Finance & Billing',
-    'high',
-    'Invoices, payments, receipts, billing statements and financial notices',
-    ARRAY['invoice', 'payment', 'billing', 'receipt', 'due', 'subscription', 'charge']
-),
-(
-    'Security & Authentication',
-    'high',
-    'Verification codes, 2-step/2FA, login alerts, password resets, account security from Google, Microsoft, etc.',
-    ARRAY['verification', '2-step', 'two-step', '2fa', 'security alert', 'sign-in', 'login', 'authentication', 'verify']
-),
-(
-    'Marketing & Newsletters',
-    'low',
-    'Promotional offers, newsletters, ads and marketing campaigns',
-    ARRAY['newsletter', 'promotion', 'offer', 'sale', 'discount', 'unsubscribe', 'marketing']
-),
-(
-    'General Updates',
-    'medium',
-    'General notifications, account updates and informational emails that do not fit other categories',
-    ARRAY['update', 'notification', 'reminder', 'confirm', 'welcome', 'info']
-);
-
 -- Insert default admin user (change password after first login)
 -- Password: admin123
 INSERT INTO users (name, email, hashed_password)
@@ -90,3 +61,41 @@ VALUES (
     'admin@company.com',
     '$2b$12$X8M6J1c7fxMcC3JJXvAJP.POuId25Tt9LY5BiwKtyoGDtq8Pmumpm'
 );
+
+-- Default categories for admin workspace
+INSERT INTO categories (user_id, name, priority, description, keywords)
+SELECT u.id, v.name, v.priority::priority_enum, v.description, v.keywords
+FROM users u
+CROSS JOIN (VALUES
+    (
+        'Job Opportunities',
+        'high',
+        'Job alerts, internships, career tips, recruitment and hiring emails. NOT security codes or 2FA emails.',
+        ARRAY['job alert', 'career', 'intern', 'hiring', 'vacancy', 'resume', 'recruiter', 'interview', 'apply now']::TEXT[]
+    ),
+    (
+        'Finance & Billing',
+        'high',
+        'Invoices, payments, receipts, billing statements and financial notices',
+        ARRAY['invoice', 'payment', 'billing', 'receipt', 'due', 'subscription', 'charge']::TEXT[]
+    ),
+    (
+        'Security & Authentication',
+        'high',
+        'Verification codes, 2-step/2FA, login alerts, password resets, account security from Google, Microsoft, etc.',
+        ARRAY['verification', '2-step', 'two-step', '2fa', 'security alert', 'sign-in', 'login', 'authentication', 'verify']::TEXT[]
+    ),
+    (
+        'Marketing & Newsletters',
+        'low',
+        'Promotional offers, newsletters, ads and marketing campaigns',
+        ARRAY['newsletter', 'promotion', 'offer', 'sale', 'discount', 'unsubscribe', 'marketing']::TEXT[]
+    ),
+    (
+        'General Updates',
+        'medium',
+        'General notifications, account updates and informational emails that do not fit other categories',
+        ARRAY['update', 'notification', 'reminder', 'confirm', 'welcome', 'info']::TEXT[]
+    )
+) AS v(name, priority, description, keywords)
+WHERE u.email = 'admin@company.com';
