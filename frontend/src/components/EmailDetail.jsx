@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ArrowLeft, Mail, RefreshCw, Sparkles, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Mail, RefreshCw, Reply, Sparkles, X } from "lucide-react";
 import toast from "react-hot-toast";
 import useStore, { selectEmailById } from "../store/useStore";
 import api from "../lib/axios";
@@ -17,6 +17,7 @@ export default function EmailDetail() {
     emailsSyncing,
   } = useStore();
   const [categorizing, setCategorizing] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   const selectedEmail = useMemo(
     () => selectEmailById(emails, selectedEmailId),
@@ -85,6 +86,63 @@ export default function EmailDetail() {
     }
   };
 
+  const updateEmailsFromResponse = (res) => {
+    setEmails(res.data.emails || []);
+  };
+
+  const markDone = async (nextDoneState) => {
+    if (!selectedAccount || updatingStatus) return;
+    setUpdatingStatus(true);
+    try {
+      const res = await api.patch(
+        `/emails/${selectedAccount.id}/${selectedEmail.id}/status`,
+        { is_done: nextDoneState }
+      );
+      updateEmailsFromResponse(res);
+      toast.success(nextDoneState ? "Marked as done" : "Marked as open");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to update email status");
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  const replyInGmail = async () => {
+    if (!selectedAccount || updatingStatus) return;
+
+    const subject = encodeURIComponent(
+      selectedEmail.subject?.startsWith("Re:")
+        ? selectedEmail.subject
+        : `Re: ${selectedEmail.subject || ""}`
+    );
+    const to = encodeURIComponent(selectedEmail.from_address || "");
+    const replyUrl =
+      `https://mail.google.com/mail/?view=cm&fs=1&tf=1` +
+      `&authuser=${encodeURIComponent(selectedAccount.email_address)}` +
+      `&to=${to}&su=${subject}`;
+
+    window.open(replyUrl, "_blank", "noopener,noreferrer");
+
+    const shouldMarkDone = window.confirm(
+      "Reply window opened in Gmail. Mark this email as done now?"
+    );
+    if (!shouldMarkDone) return;
+
+    setUpdatingStatus(true);
+    try {
+      const res = await api.post(
+        `/emails/${selectedAccount.id}/${selectedEmail.id}/reply-done`,
+        { mark_done: true }
+      );
+      updateEmailsFromResponse(res);
+      toast.success("Reply noted and email marked as done");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to update reply status");
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
   return (
     <div key={selectedEmail.id} className={`${panelClass} border-l border-border`}>
       <div className="px-4 md:px-6 py-4 border-b border-border bg-card shrink-0">
@@ -104,6 +162,11 @@ export default function EmailDetail() {
                 priority={selectedEmail.category_priority}
                 confidence={selectedEmail.confidence_score}
               />
+              {selectedEmail.is_done && (
+                <span className="text-[11px] font-medium text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                  Done
+                </span>
+              )}
               {!selectedEmail.category_name && emailsSyncing && (
                 <span className="text-[11px] text-muted">Classifying...</span>
               )}
@@ -124,6 +187,26 @@ export default function EmailDetail() {
             {selectedEmail.date && (
               <p className="text-xs text-muted/70 mt-1">{selectedEmail.date}</p>
             )}
+            <div className="flex flex-wrap items-center gap-2 mt-3">
+              <button
+                type="button"
+                onClick={replyInGmail}
+                disabled={updatingStatus}
+                className="btn-primary inline-flex items-center gap-1.5"
+              >
+                <Reply className="w-4 h-4" />
+                Reply from this inbox
+              </button>
+              <button
+                type="button"
+                onClick={() => markDone(!selectedEmail.is_done)}
+                disabled={updatingStatus}
+                className="btn-secondary inline-flex items-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {selectedEmail.is_done ? "Mark as open" : "Mark as done"}
+              </button>
+            </div>
           </div>
           <button
             type="button"

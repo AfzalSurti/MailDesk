@@ -107,13 +107,20 @@ export default function EmailList({ onRefresh }) {
                 }`}
               >
                 <div className="flex items-start justify-between gap-2 min-w-0">
-                  <p
-                    className={`text-[13px] leading-snug truncate flex-1 ${
-                      isActive ? "font-semibold text-ink" : "font-medium text-ink/90"
-                    }`}
-                  >
-                    {email.subject || "(No Subject)"}
-                  </p>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className={`text-[13px] leading-snug truncate ${
+                        isActive ? "font-semibold text-ink" : "font-medium text-ink/90"
+                      }`}
+                    >
+                      {email.subject || "(No Subject)"}
+                    </p>
+                    {email.is_done && (
+                      <span className="inline-block mt-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                        Done
+                      </span>
+                    )}
+                  </div>
                   {email.date && (
                     <span className="text-[11px] text-muted shrink-0 pt-px">
                       {formatEmailDate(email.date)}

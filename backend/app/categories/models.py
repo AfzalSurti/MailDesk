@@ -29,3 +29,23 @@ class Category(Base):
     description = Column(Text, nullable=True)
     keywords = Column(ARRAY(String), nullable=True, default=[])
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AccountCategoryAssignment(Base):
+    __tablename__ = "account_category_assignments"
+    __table_args__ = (
+        UniqueConstraint("account_id", "category_id", name="uq_account_category_assignment"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    account_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("gmail_accounts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    category_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("categories.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at = Column(DateTime, default=datetime.utcnow)

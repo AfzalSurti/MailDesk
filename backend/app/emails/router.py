@@ -33,6 +33,9 @@ class EmailItem(BaseModel):
     category_name: str | None = None
     category_priority: str | None = None
     confidence_score: float | None = None
+    is_done: bool = False
+    done_at: str | None = None
+    replied_at: str | None = None
 
 
 class SyncResponse(BaseModel):
@@ -52,6 +55,14 @@ class CategorizeResponse(BaseModel):
     category: dict | None
 
 
+class EmailStatusRequest(BaseModel):
+    is_done: bool
+
+
+class EmailReplyDoneRequest(BaseModel):
+    mark_done: bool = True
+
+
 def _to_email_item(record: EmailMessage) -> EmailItem:
     return EmailItem(
         id=record.gmail_uid,
@@ -64,6 +75,9 @@ def _to_email_item(record: EmailMessage) -> EmailItem:
         category_name=record.category_name,
         category_priority=record.category_priority,
         confidence_score=record.confidence_score,
+        is_done=bool(record.is_done),
+        done_at=record.done_at.isoformat() if record.done_at else None,
+        replied_at=record.replied_at.isoformat() if record.replied_at else None,
     )
 
 
@@ -200,7 +214,8 @@ async def categorize_stored_email_endpoint(
 ):
     await _get_account_or_404(db, user, account_id)
     try:
-        matched = await categorize_stored_email(db, account_id, gmail_uid, user.id)
+        account = await _get_account_or_404(db, user, account_id)
+        matched = await categorize_stored_email(db, account, account_id, gmail_uid)
     except ClassificationAPIError as exc:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED
@@ -216,6 +231,79 @@ async def categorize_stored_email_endpoint(
             detail=f"AI categorization failed: {exc}",
         ) from exc
     return CategorizeResponse(category=matched)
+
+
+@router.patch("/{account_id}/{gmail_uid}/status", response_model=SyncResponse)
+async def update_email_status_endpoint(
+    account_id: uuid.UUID,
+    gmail_uid: str,
+    body: EmailStatusRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_account_or_404(db, user, account_id)
+    result = await db.execute(
+        select(EmailMessage).where(
+            EmailMessage.account_id == account_id,
+            EmailMessage.gmail_uid == gmail_uid,
+        )
+    )
+    email = result.scalar_one_or_none()
+    if not email:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not found")
+
+    from datetime import datetime
+
+    email.is_done = body.is_done
+    email.done_at = datetime.utcnow() if body.is_done else None
+    if not body.is_done:
+        email.replied_at = None
+    await db.commit()
+
+    stored = await list_account_emails(db, account.id)
+    return SyncResponse(
+        account_id=account.id,
+        email_address=account.email_address,
+        count=len(stored),
+        emails=[_to_email_item(e) for e in stored],
+    )
+
+
+@router.post("/{account_id}/{gmail_uid}/reply-done", response_model=SyncResponse)
+async def mark_replied_done_endpoint(
+    account_id: uuid.UUID,
+    gmail_uid: str,
+    body: EmailReplyDoneRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_account_or_404(db, user, account_id)
+    result = await db.execute(
+        select(EmailMessage).where(
+            EmailMessage.account_id == account_id,
+            EmailMessage.gmail_uid == gmail_uid,
+        )
+    )
+    email = result.scalar_one_or_none()
+    if not email:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not found")
+
+    from datetime import datetime
+
+    now = datetime.utcnow()
+    email.replied_at = now
+    if body.mark_done:
+        email.is_done = True
+        email.done_at = now
+    await db.commit()
+
+    stored = await list_account_emails(db, account.id)
+    return SyncResponse(
+        account_id=account.id,
+        email_address=account.email_address,
+        count=len(stored),
+        emails=[_to_email_item(e) for e in stored],
+    )
 
 
 @router.post("/categorize", response_model=CategorizeResponse)

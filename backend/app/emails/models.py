@@ -1,7 +1,7 @@
 from datetime import datetime
 import uuid
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.database import Base
@@ -32,3 +32,6 @@ class EmailMessage(Base):
     category_name = Column(String(255), nullable=True)
     category_priority = Column(String(20), nullable=True)
     confidence_score = Column(Float, nullable=True)
+    is_done = Column(Boolean, nullable=False, default=False)
+    done_at = Column(DateTime, nullable=True)
+    replied_at = Column(DateTime, nullable=True)

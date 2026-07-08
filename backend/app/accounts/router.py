@@ -9,6 +9,7 @@ from app.database import get_db
 from app.accounts.models import GmailAccount
 from app.accounts.deps import get_user_gmail_account
 from app.accounts.service import encrypt_password, test_imap_connection
+from app.auth.defaults import assign_all_user_categories_to_account
 from app.auth.models import User
 from app.auth.utils import get_current_user
 
@@ -77,6 +78,8 @@ async def add_account(
         display_name=body.display_name,
     )
     db.add(account)
+    await db.flush()
+    await assign_all_user_categories_to_account(db, user.id, account.id)
     await db.commit()
     await db.refresh(account)
     return account

@@ -1,8 +1,9 @@
 """Default AI categories seeded for each new user workspace."""
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.categories.models import Category, PriorityEnum
+from app.categories.models import AccountCategoryAssignment, Category, PriorityEnum
 
 DEFAULT_CATEGORIES = [
     (
@@ -50,3 +51,20 @@ async def seed_default_categories(db: AsyncSession, user_id) -> None:
             )
         )
     await db.flush()
+
+
+async def assign_categories_to_account(db: AsyncSession, account_id, category_ids) -> None:
+    for category_id in category_ids:
+        db.add(
+            AccountCategoryAssignment(
+                account_id=account_id,
+                category_id=category_id,
+            )
+        )
+    await db.flush()
+
+
+async def assign_all_user_categories_to_account(db: AsyncSession, user_id, account_id) -> None:
+    categories = await db.execute(select(Category.id).where(Category.user_id == user_id))
+    category_ids = list(categories.scalars().all())
+    await assign_categories_to_account(db, account_id, category_ids)

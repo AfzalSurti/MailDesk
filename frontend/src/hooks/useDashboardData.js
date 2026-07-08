@@ -13,7 +13,6 @@ export function useDashboardData() {
     emailsSyncing,
     emailsRecategorizing,
     setAccounts,
-    setCategories,
     setSelectedAccount,
     setEmails,
     setEmailsLoading,
@@ -61,23 +60,13 @@ export function useDashboardData() {
 
   useEffect(() => {
     const load = async () => {
-      const accPromise = api.get("/accounts/").then((res) => {
+      const accounts = await api.get("/accounts/").then((res) => {
         setAccounts(res.data);
         return res.data;
       }).catch(() => {
         toast.error("Failed to load accounts");
         return [];
       });
-
-      const catPromise = api.get("/categories/").then((res) => {
-        setCategories(res.data);
-        return res.data;
-      }).catch(() => {
-        toast.error("Failed to load categories");
-        return [];
-      });
-
-      const [accounts] = await Promise.all([accPromise, catPromise]);
 
       const savedId = getSavedAccountId();
       const restored =
@@ -88,7 +77,7 @@ export function useDashboardData() {
     };
     load();
     return stopPolling;
-  }, [setAccounts, setCategories, setSelectedAccount, stopPolling]);
+  }, [setAccounts, setSelectedAccount, stopPolling]);
 
   useEffect(() => {
     if (!selectedAccount) {

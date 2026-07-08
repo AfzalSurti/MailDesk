@@ -32,6 +32,14 @@ CREATE TABLE categories (
     UNIQUE (user_id, name)
 );
 
+CREATE TABLE account_category_assignments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id UUID NOT NULL REFERENCES gmail_accounts(id) ON DELETE CASCADE,
+    category_id UUID NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (account_id, category_id)
+);
+
 CREATE TABLE emails (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     account_id UUID NOT NULL REFERENCES gmail_accounts(id) ON DELETE CASCADE,
@@ -48,6 +56,9 @@ CREATE TABLE emails (
     category_name VARCHAR(255),
     category_priority VARCHAR(20),
     confidence_score DOUBLE PRECISION,
+    is_done BOOLEAN NOT NULL DEFAULT FALSE,
+    done_at TIMESTAMP NULL,
+    replied_at TIMESTAMP NULL,
     UNIQUE (account_id, gmail_uid)
 );
 

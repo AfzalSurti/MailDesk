@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.accounts.models import GmailAccount
-from app.categories.models import Category
+from app.categories.models import AccountCategoryAssignment, Category
 from app.emails.ai_service import ClassificationAPIError, classify_email, parse_category_uuid
 from app.emails.imap_service import iter_fetch_emails
 from app.emails.models import EmailMessage
@@ -31,10 +31,15 @@ def sanitize_text(value: str | None) -> str:
     return value.replace("\x00", "")
 
 
-async def _load_categories(db: AsyncSession, user_id) -> list[dict]:
+async def _load_categories(db: AsyncSession, account: GmailAccount) -> list[dict]:
     result = await db.execute(
         select(Category)
-        .where(Category.user_id == user_id)
+        .join(
+            AccountCategoryAssignment,
+            AccountCategoryAssignment.category_id == Category.id,
+        )
+        .where(Category.user_id == account.user_id)
+        .where(AccountCategoryAssignment.account_id == account.id)
         .order_by(Category.created_at)
     )
     categories = result.scalars().all()
@@ -116,9 +121,9 @@ async def _save_category(
 
 async def categorize_stored_email(
     db: AsyncSession,
+    account: GmailAccount,
     account_id: uuid.UUID,
     gmail_uid: str,
-    user_id,
 ) -> dict:
     result = await db.execute(
         select(EmailMessage).where(
@@ -130,7 +135,7 @@ async def categorize_stored_email(
     if not email:
         raise ValueError("Email not found")
 
-    categories = await _load_categories(db, user_id)
+    categories = await _load_categories(db, account)
     if not categories:
         raise ValueError("No categories configured")
 
@@ -153,7 +158,7 @@ async def _categorize_account_emails(
     account: GmailAccount,
     gmail_uids: set[str],
 ) -> None:
-    categories = await _load_categories(db, account.user_id)
+    categories = await _load_categories(db, account)
     if not categories or not gmail_uids:
         return
 
@@ -220,7 +225,7 @@ async def recategorize_all_emails(
     db: AsyncSession,
     account: GmailAccount,
 ) -> list[EmailMessage]:
-    categories = await _load_categories(db, account.user_id)
+    categories = await _load_categories(db, account)
     if not categories:
         raise ValueError("No categories configured")
 
