@@ -29,12 +29,13 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     ENCRYPTION_KEY: str
-    # Comma-separated keys: API_KEY=key1,key2  (also OPENROUTER_API_KEY)
+    # Render: OPENROUTER_API_KEY=key1,key2  — also accepts API_KEY
     OPENROUTER_API_KEY: str = Field(
         default="",
-        validation_alias=AliasChoices("API_KEY", "OPENROUTER_API_KEY"),
+        validation_alias=AliasChoices("OPENROUTER_API_KEY", "API_KEY"),
     )
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    # Render: MODEL_NAME=openai/gpt-4o-mini  — also accepts OPENROUTER_MODEL
     OPENROUTER_MODEL: str = Field(
         default="openai/gpt-4o-mini",
         validation_alias=AliasChoices("MODEL_NAME", "OPENROUTER_MODEL"),

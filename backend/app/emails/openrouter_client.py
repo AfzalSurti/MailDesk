@@ -1,8 +1,8 @@
 """Shared OpenRouter client with multi-key rotation.
 
 Env supports:
-  API_KEY=key1,key2,key3   (or OPENROUTER_API_KEY)
-  MODEL_NAME=openai/gpt-4o-mini  (or OPENROUTER_MODEL)
+  OPENROUTER_API_KEY=key1,key2,key3   (or API_KEY)
+  MODEL_NAME=openai/gpt-4o-mini       (or OPENROUTER_MODEL)
 
 On 401 / 402 / 429 the next key is tried. Keys cycle forever.
 Never log raw API keys.
@@ -65,7 +65,7 @@ class OpenRouterClient:
         keys = self.keys
         if not keys:
             raise OpenRouterError(
-                "No OpenRouter API keys configured. Set API_KEY (or OPENROUTER_API_KEY) in .env"
+                "No OpenRouter API keys configured. Set OPENROUTER_API_KEY (or API_KEY) in .env"
             )
         key = keys[self._index % len(keys)]
         self._index = (self._index + 1) % len(keys)
@@ -85,7 +85,7 @@ class OpenRouterClient:
         if status_code == 429:
             return "OpenRouter rate limit exceeded"
         if status_code == 404 and "model" in str(msg).lower():
-            return f"OpenRouter model not available: {self.model}. Check MODEL_NAME in .env"
+            return f"OpenRouter model not available: {self.model}. Check MODEL_NAME or OPENROUTER_MODEL in .env"
         return f"OpenRouter API error ({status_code})"
 
     async def chat_completions(
@@ -99,7 +99,7 @@ class OpenRouterClient:
         keys = self.keys
         if not keys:
             raise OpenRouterError(
-                "No OpenRouter API keys configured. Set API_KEY (or OPENROUTER_API_KEY) in .env"
+                "No OpenRouter API keys configured. Set OPENROUTER_API_KEY (or API_KEY) in .env"
             )
 
         last_error: OpenRouterError | None = None

@@ -69,7 +69,7 @@ async def answer_email_question(
 ) -> str:
     if not openrouter.configured:
         raise OpenRouterError(
-            "OpenRouter API key is not configured. Set API_KEY (comma-separated) in .env"
+            "OpenRouter API key is not configured. Set OPENROUTER_API_KEY (comma-separated) in .env"
         )
 
     emails = await load_chat_emails(db, account_id)

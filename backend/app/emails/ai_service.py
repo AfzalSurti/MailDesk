@@ -160,7 +160,7 @@ async def classify_email(
 
     if not openrouter.configured:
         raise ClassificationAPIError(
-            "OpenRouter API key is not configured. Set API_KEY (or OPENROUTER_API_KEY) in backend .env"
+            "OpenRouter API key is not configured. Set OPENROUTER_API_KEY (or API_KEY) in backend .env"
         )
 
     rule_result = rule_based_classify(subject, sender, body_preview, categories)
