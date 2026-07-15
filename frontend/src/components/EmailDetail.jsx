@@ -167,6 +167,11 @@ export default function EmailDetail() {
                   Done
                 </span>
               )}
+              {(selectedEmail.has_reply || selectedEmail.replied_at) && (
+                <span className="text-[11px] font-medium text-sky-800 bg-sky-100 px-2 py-0.5 rounded-full">
+                  Reply already given
+                </span>
+              )}
               {!selectedEmail.category_name && emailsSyncing && (
                 <span className="text-[11px] text-muted">Classifying...</span>
               )}
@@ -220,7 +225,7 @@ export default function EmailDetail() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6">
-        <div className="max-w-3xl">
+        <div className="max-w-3xl space-y-8">
           {htmlBody ? (
             <div
               key={`html-${selectedEmail.id}`}
@@ -234,6 +239,32 @@ export default function EmailDetail() {
             >
               {plainBody || "No content available."}
             </p>
+          )}
+
+          {(selectedEmail.has_reply || selectedEmail.reply_body || selectedEmail.reply_body_html) && (
+            <section className="border-t border-border pt-6">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h4 className="text-sm font-semibold text-ink">Your reply</h4>
+                {selectedEmail.reply_at && (
+                  <span className="text-[11px] text-muted">{selectedEmail.reply_at}</span>
+                )}
+              </div>
+              {selectedEmail.reply_subject && (
+                <p className="text-xs text-muted mb-2">{selectedEmail.reply_subject}</p>
+              )}
+              {sanitizeEmailHtml(selectedEmail.reply_body_html) ? (
+                <div
+                  className="email-body-content rounded-xl border border-sky-100 bg-sky-50/40 p-4"
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizeEmailHtml(selectedEmail.reply_body_html),
+                  }}
+                />
+              ) : (
+                <p className="text-sm text-ink leading-7 whitespace-pre-wrap break-words rounded-xl border border-sky-100 bg-sky-50/40 p-4">
+                  {selectedEmail.reply_body || "Reply detected for this email."}
+                </p>
+              )}
+            </section>
           )}
         </div>
       </div>

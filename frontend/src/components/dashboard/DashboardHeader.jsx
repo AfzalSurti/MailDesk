@@ -1,10 +1,12 @@
-import { Menu, RefreshCw } from "lucide-react";
+import { Menu, MessageCircle, RefreshCw } from "lucide-react";
 
 export default function DashboardHeader({
   selectedAccount,
   emailsSyncing,
+  stats,
   onOpenSidebar,
   onOpenCategories,
+  onOpenChat,
   onSync,
 }) {
   return (
@@ -34,6 +36,16 @@ export default function DashboardHeader({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {selectedAccount && (
+            <button
+              type="button"
+              onClick={onOpenChat}
+              className="btn-secondary hidden sm:inline-flex items-center gap-1.5 text-xs px-3 py-1.5"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              Ask AI
+            </button>
+          )}
           <button
             type="button"
             onClick={onOpenCategories}
@@ -55,7 +67,34 @@ export default function DashboardHeader({
         </div>
       </div>
 
+      {selectedAccount && stats && (
+        <div className="mt-2.5 flex flex-wrap gap-2 text-[11px]">
+          <span className="px-2 py-1 rounded-full bg-surface border border-border text-ink">
+            Total <strong className="font-semibold">{stats.total}</strong>
+          </span>
+          <span className="px-2 py-1 rounded-full bg-amber-50 border border-amber-100 text-amber-800">
+            Need reply <strong className="font-semibold">{stats.unreplied}</strong>
+          </span>
+          <span className="px-2 py-1 rounded-full bg-sky-50 border border-sky-100 text-sky-800">
+            Replied <strong className="font-semibold">{stats.replied}</strong>
+          </span>
+          <span className="px-2 py-1 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-800">
+            Done <strong className="font-semibold">{stats.done}</strong>
+          </span>
+        </div>
+      )}
+
       <div className="flex gap-2 mt-2.5 sm:hidden">
+        {selectedAccount && (
+          <button
+            type="button"
+            onClick={onOpenChat}
+            className="btn-secondary flex-1 text-xs py-1.5 inline-flex items-center justify-center gap-1.5"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            Ask AI
+          </button>
+        )}
         <button
           type="button"
           onClick={onOpenCategories}

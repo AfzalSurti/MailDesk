@@ -20,6 +20,7 @@ class EmailMessage(Base):
         nullable=False,
     )
     gmail_uid = Column(String(50), nullable=False)
+    message_id = Column(String(500), nullable=True)
     subject = Column(String(1000), nullable=False, default="")
     from_address = Column(String(500), nullable=False, default="")
     date_header = Column(String(255), nullable=False, default="")
@@ -35,3 +36,8 @@ class EmailMessage(Base):
     is_done = Column(Boolean, nullable=False, default=False)
     done_at = Column(DateTime, nullable=True)
     replied_at = Column(DateTime, nullable=True)
+    has_reply = Column(Boolean, nullable=False, default=False)
+    reply_subject = Column(String(1000), nullable=True)
+    reply_body = Column(Text, nullable=True)
+    reply_body_html = Column(Text, nullable=True)
+    reply_at = Column(DateTime, nullable=True)

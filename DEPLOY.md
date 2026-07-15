@@ -72,8 +72,8 @@ git push origin main
    | `DATABASE_URL` | Your Neon async URL |
    | `SECRET_KEY` | From step 2 |
    | `ENCRYPTION_KEY` | From step 2 |
-   | `OPENROUTER_API_KEY` | Your OpenRouter key |
-   | `OPENROUTER_MODEL` | `openai/gpt-4o-mini` |
+   | `OPENROUTER_API_KEY` or `API_KEY` | One or more OpenRouter keys, comma-separated: `key1,key2,key3` |
+   | `OPENROUTER_MODEL` or `MODEL_NAME` | e.g. `openai/gpt-4o-mini` |
    | `DEBUG` | `false` |
    | `FRONTEND_URL` | Your Vercel URL — **exact match**, e.g. `https://mail-desk-one.vercel.app` (no trailing `/`) |
    | `BACKEND_URL` | Your Render API URL, e.g. `https://maildesk-sk5r.onrender.com` |

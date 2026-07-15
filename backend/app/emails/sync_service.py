@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.accounts.models import GmailAccount
 from app.categories.models import AccountCategoryAssignment, Category
 from app.emails.ai_service import ClassificationAPIError, classify_email, parse_category_uuid
-from app.emails.imap_service import iter_fetch_emails
+from app.emails.imap_service import fetch_sent_replies, iter_fetch_emails
 from app.emails.models import EmailMessage
 
 
@@ -71,6 +71,7 @@ async def _upsert_email(db: AsyncSession, account_id, raw: dict, synced_at: date
     values = {
         "account_id": account_id,
         "gmail_uid": raw["uid"],
+        "message_id": sanitize_text(raw.get("message_id"))[:500] or None,
         "subject": sanitize_text(raw.get("subject"))[:1000],
         "from_address": sanitize_text(raw.get("sender"))[:500],
         "date_header": sanitize_text(raw.get("date"))[:255],
@@ -85,6 +86,7 @@ async def _upsert_email(db: AsyncSession, account_id, raw: dict, synced_at: date
     stmt = stmt.on_conflict_do_update(
         index_elements=["account_id", "gmail_uid"],
         set_={
+            "message_id": stmt.excluded.message_id,
             "subject": stmt.excluded.subject,
             "from_address": stmt.excluded.from_address,
             "date_header": stmt.excluded.date_header,
@@ -96,6 +98,79 @@ async def _upsert_email(db: AsyncSession, account_id, raw: dict, synced_at: date
         },
     )
     await db.execute(stmt)
+
+
+async def _match_sent_replies(
+    db: AsyncSession,
+    account: GmailAccount,
+    days: int = 3,
+) -> None:
+    """Match Sent Mail replies to already-synced inbox messages (same day window only)."""
+    try:
+        sent = fetch_sent_replies(
+            account.email_address,
+            account.app_password,
+            days=days,
+        )
+    except Exception:
+        return
+
+    if not sent:
+        return
+
+    # Prefer the most recent reply for each original Message-ID
+    reply_by_original: dict[str, dict] = {}
+    for reply in sent:
+        reply_at = parse_email_date(reply.get("date") or "")
+        for original_id in reply.get("in_reply_to_ids") or []:
+            existing = reply_by_original.get(original_id)
+            if not existing:
+                reply_by_original[original_id] = reply
+                continue
+            existing_at = parse_email_date(existing.get("date") or "")
+            if reply_at and (not existing_at or reply_at > existing_at):
+                reply_by_original[original_id] = reply
+
+    if not reply_by_original:
+        return
+
+    result = await db.execute(
+        select(EmailMessage).where(
+            EmailMessage.account_id == account.id,
+            EmailMessage.message_id.in_(list(reply_by_original.keys())),
+        )
+    )
+    emails = result.scalars().all()
+
+    for email in emails:
+        reply = reply_by_original.get((email.message_id or "").lower())
+        if not reply:
+            continue
+        reply_at = parse_email_date(reply.get("date") or "") or datetime.utcnow()
+        email.has_reply = True
+        email.reply_subject = sanitize_text(reply.get("subject"))[:1000]
+        email.reply_body = sanitize_text(reply.get("body"))
+        email.reply_body_html = sanitize_text(reply.get("body_html"))
+        email.reply_at = reply_at
+        email.replied_at = reply_at
+        if not email.is_done:
+            email.is_done = True
+            email.done_at = reply_at
+
+    await db.commit()
+
+
+def compute_inbox_stats(emails: list[EmailMessage]) -> dict:
+    total = len(emails)
+    replied = sum(1 for e in emails if e.has_reply or e.replied_at)
+    done = sum(1 for e in emails if e.is_done)
+    unreplied = sum(1 for e in emails if not (e.has_reply or e.replied_at or e.is_done))
+    return {
+        "total": total,
+        "replied": replied,
+        "unreplied": unreplied,
+        "done": done,
+    }
 
 
 async def _save_category(
@@ -215,7 +290,10 @@ async def sync_account_emails(
         )
         await db.commit()
 
-    # Phase 2: apply AI categorization after all emails are stored
+    # Phase 2: detect replies already sent from this Gmail account (same day window)
+    await _match_sent_replies(db, account, days=days)
+
+    # Phase 3: apply AI categorization after all emails are stored
     await _categorize_account_emails(db, account, fetched_uids)
 
     return await list_account_emails(db, account.id)

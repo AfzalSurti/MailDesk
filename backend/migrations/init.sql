@@ -59,10 +59,17 @@ CREATE TABLE emails (
     is_done BOOLEAN NOT NULL DEFAULT FALSE,
     done_at TIMESTAMP NULL,
     replied_at TIMESTAMP NULL,
+    message_id VARCHAR(500),
+    has_reply BOOLEAN NOT NULL DEFAULT FALSE,
+    reply_subject VARCHAR(1000),
+    reply_body TEXT,
+    reply_body_html TEXT,
+    reply_at TIMESTAMP NULL,
     UNIQUE (account_id, gmail_uid)
 );
 
 CREATE INDEX idx_emails_account_received ON emails (account_id, received_at DESC NULLS LAST);
+CREATE INDEX idx_emails_account_message_id ON emails (account_id, message_id);
 
 -- Insert default admin user (change password after first login)
 -- Password: admin123

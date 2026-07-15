@@ -1,10 +1,9 @@
-import httpx
 import json
 import re
 import uuid
 from typing import List, Dict, Optional
 
-from app.config import settings
+from app.emails.openrouter_client import OpenRouterError, openrouter
 
 _cache: dict = {}
 
@@ -15,24 +14,6 @@ class ClassificationAPIError(Exception):
     def __init__(self, message: str, status_code: int | None = None):
         super().__init__(message)
         self.status_code = status_code
-
-
-def _openrouter_error_message(status_code: int, body: str) -> str:
-    try:
-        payload = json.loads(body)
-        msg = payload.get("error", {}).get("message") or payload.get("message") or body
-    except json.JSONDecodeError:
-        msg = body[:200]
-
-    if status_code in (401, 403):
-        return "OpenRouter API key is invalid or expired. Update OPENROUTER_API_KEY in backend .env"
-    if status_code == 402:
-        return "OpenRouter API key limit exceeded — add credits or use a new API key"
-    if status_code == 429:
-        return "OpenRouter rate limit exceeded. Please try again in a few minutes"
-    if status_code == 404 and "model" in msg.lower():
-        return f"OpenRouter model not available: {settings.OPENROUTER_MODEL}. Check OPENROUTER_MODEL in .env"
-    return f"OpenRouter API error ({status_code}): {msg}"
 
 
 def _find_category(categories: List[Dict], *name_parts: str) -> Optional[dict]:
@@ -177,9 +158,9 @@ async def classify_email(
     if not categories:
         return _uncategorized()
 
-    if not settings.OPENROUTER_API_KEY or settings.OPENROUTER_API_KEY.startswith("your-"):
+    if not openrouter.configured:
         raise ClassificationAPIError(
-            "OpenRouter API key is not configured. Set OPENROUTER_API_KEY in backend .env"
+            "OpenRouter API key is not configured. Set API_KEY (or OPENROUTER_API_KEY) in backend .env"
         )
 
     rule_result = rule_based_classify(subject, sender, body_preview, categories)
@@ -222,67 +203,31 @@ From: {sender}
 Preview: {body_preview[:400]}"""
 
     try:
-        async with httpx.AsyncClient(timeout=45) as client:
-            response = await client.post(
-                f"{settings.OPENROUTER_BASE_URL.rstrip('/')}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": settings.FRONTEND_URL,
-                    "X-Title": "MailDesk",
-                },
-                json={
-                    "model": settings.OPENROUTER_MODEL,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "max_tokens": 120,
-                    "temperature": 0.1,
-                },
-            )
+        raw = await openrouter.chat_completions(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=120,
+            temperature=0.1,
+            timeout=45.0,
+        )
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        parsed = json.loads(raw)
+        result = normalize_classification(parsed, categories)
 
-            if response.status_code >= 400:
-                raise ClassificationAPIError(
-                    _openrouter_error_message(response.status_code, response.text),
-                    status_code=response.status_code,
-                )
+        if not result:
+            general = _find_category(categories, "general")
+            result = _make_result(general, 0.5) if general else _uncategorized()
 
-            data = response.json()
-            if data.get("error"):
-                err = data["error"]
-                msg = err.get("message", str(err))
-                code = err.get("code", 502)
-                raise ClassificationAPIError(
-                    _openrouter_error_message(int(code) if str(code).isdigit() else 502, msg),
-                    status_code=int(code) if str(code).isdigit() else 502,
-                )
+        _cache[cache_key] = result
+        return result
 
-            raw = data["choices"][0]["message"]["content"].strip()
-            raw = raw.replace("```json", "").replace("```", "").strip()
-            parsed = json.loads(raw)
-            result = normalize_classification(parsed, categories)
-
-            if not result:
-                general = _find_category(categories, "general")
-                result = _make_result(general, 0.5) if general else _uncategorized()
-
-            _cache[cache_key] = result
-            return result
-
-    except ClassificationAPIError:
-        raise
+    except OpenRouterError as exc:
+        raise ClassificationAPIError(str(exc), status_code=exc.status_code) from exc
     except json.JSONDecodeError as exc:
         raise ClassificationAPIError(
             "OpenRouter returned invalid JSON for classification. Try again."
-        ) from exc
-    except httpx.HTTPError as exc:
-        raise ClassificationAPIError(
-            f"Could not reach OpenRouter API: {exc}"
-        ) from exc
-    except (KeyError, IndexError) as exc:
-        raise ClassificationAPIError(
-            "Unexpected response format from OpenRouter API"
         ) from exc
 
 

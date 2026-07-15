@@ -11,15 +11,25 @@ from app.auth.utils import get_current_user
 from app.categories.models import Category
 from app.database import get_db
 from app.emails.ai_service import ClassificationAPIError, classify_email
+from app.emails.chat_service import answer_email_question
 from app.emails.models import EmailMessage
+from app.emails.openrouter_client import OpenRouterError
 from app.emails.sync_service import (
     categorize_stored_email,
+    compute_inbox_stats,
     list_account_emails,
     recategorize_all_emails,
     sync_account_emails,
 )
 
 router = APIRouter()
+
+
+class InboxStats(BaseModel):
+    total: int = 0
+    replied: int = 0
+    unreplied: int = 0
+    done: int = 0
 
 
 class EmailItem(BaseModel):
@@ -36,12 +46,18 @@ class EmailItem(BaseModel):
     is_done: bool = False
     done_at: str | None = None
     replied_at: str | None = None
+    has_reply: bool = False
+    reply_subject: str | None = None
+    reply_body: str | None = None
+    reply_body_html: str | None = None
+    reply_at: str | None = None
 
 
 class SyncResponse(BaseModel):
     account_id: uuid.UUID
     email_address: str
     count: int
+    stats: InboxStats
     emails: list[EmailItem]
 
 
@@ -63,6 +79,22 @@ class EmailReplyDoneRequest(BaseModel):
     mark_done: bool = True
 
 
+class ChatHistoryItem(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatHistoryItem] = []
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    model: str
+    emails_used: int
+
+
 def _to_email_item(record: EmailMessage) -> EmailItem:
     return EmailItem(
         id=record.gmail_uid,
@@ -78,6 +110,22 @@ def _to_email_item(record: EmailMessage) -> EmailItem:
         is_done=bool(record.is_done),
         done_at=record.done_at.isoformat() if record.done_at else None,
         replied_at=record.replied_at.isoformat() if record.replied_at else None,
+        has_reply=bool(record.has_reply),
+        reply_subject=record.reply_subject,
+        reply_body=record.reply_body,
+        reply_body_html=record.reply_body_html,
+        reply_at=record.reply_at.isoformat() if record.reply_at else None,
+    )
+
+
+def _sync_response(account: GmailAccount, stored: list[EmailMessage]) -> SyncResponse:
+    stats = compute_inbox_stats(stored)
+    return SyncResponse(
+        account_id=account.id,
+        email_address=account.email_address,
+        count=len(stored),
+        stats=InboxStats(**stats),
+        emails=[_to_email_item(e) for e in stored],
     )
 
 
@@ -111,14 +159,7 @@ async def sync_all_accounts(
     responses = []
     for account in accounts:
         stored = await sync_account_emails(db, account, days=days)
-        responses.append(
-            SyncResponse(
-                account_id=account.id,
-                email_address=account.email_address,
-                count=len(stored),
-                emails=[_to_email_item(e) for e in stored],
-            )
-        )
+        responses.append(_sync_response(account, stored))
 
     return responses
 
@@ -131,13 +172,7 @@ async def list_stored_account_emails(
 ):
     account = await _get_account_or_404(db, user, account_id)
     stored = await list_account_emails(db, account_id)
-
-    return SyncResponse(
-        account_id=account.id,
-        email_address=account.email_address,
-        count=len(stored),
-        emails=[_to_email_item(e) for e in stored],
-    )
+    return _sync_response(account, stored)
 
 
 @router.post("/{account_id}/sync", response_model=SyncResponse)
@@ -164,12 +199,46 @@ async def sync_account_emails_endpoint(
             detail=f"Failed to sync emails from Gmail: {exc}",
         ) from exc
 
-    return SyncResponse(
-        account_id=account.id,
-        email_address=account.email_address,
-        count=len(stored),
-        emails=[_to_email_item(e) for e in stored],
-    )
+    return _sync_response(account, stored)
+
+
+@router.post("/{account_id}/chat", response_model=ChatResponse)
+async def chat_about_emails(
+    account_id: uuid.UUID,
+    body: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_account_or_404(db, user, account_id)
+    message = (body.message or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+    if len(message) > 2000:
+        raise HTTPException(status_code=400, detail="Message is too long")
+
+    try:
+        from app.config import settings
+
+        reply = await answer_email_question(
+            db,
+            account.id,
+            account.email_address,
+            message,
+            history=[item.model_dump() for item in body.history],
+        )
+        stored = await list_account_emails(db, account.id)
+        return ChatResponse(
+            reply=reply,
+            model=settings.openrouter_model_name,
+            emails_used=min(len(stored), 40),
+        )
+    except OpenRouterError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED
+            if exc.status_code in (401, 402, 403)
+            else status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post("/{account_id}/recategorize", response_model=SyncResponse)
@@ -197,12 +266,7 @@ async def recategorize_all_emails_endpoint(
             detail=f"Bulk re-categorization failed: {exc}",
         ) from exc
 
-    return SyncResponse(
-        account_id=account.id,
-        email_address=account.email_address,
-        count=len(stored),
-        emails=[_to_email_item(e) for e in stored],
-    )
+    return _sync_response(account, stored)
 
 
 @router.post("/{account_id}/{gmail_uid}/categorize", response_model=CategorizeResponse)
@@ -261,12 +325,7 @@ async def update_email_status_endpoint(
     await db.commit()
 
     stored = await list_account_emails(db, account.id)
-    return SyncResponse(
-        account_id=account.id,
-        email_address=account.email_address,
-        count=len(stored),
-        emails=[_to_email_item(e) for e in stored],
-    )
+    return _sync_response(account, stored)
 
 
 @router.post("/{account_id}/{gmail_uid}/reply-done", response_model=SyncResponse)
@@ -292,18 +351,14 @@ async def mark_replied_done_endpoint(
 
     now = datetime.utcnow()
     email.replied_at = now
+    email.has_reply = True
     if body.mark_done:
         email.is_done = True
         email.done_at = now
     await db.commit()
 
     stored = await list_account_emails(db, account.id)
-    return SyncResponse(
-        account_id=account.id,
-        email_address=account.email_address,
-        count=len(stored),
-        emails=[_to_email_item(e) for e in stored],
-    )
+    return _sync_response(account, stored)
 
 
 @router.post("/categorize", response_model=CategorizeResponse)

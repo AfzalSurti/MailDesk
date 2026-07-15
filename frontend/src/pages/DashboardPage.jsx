@@ -4,12 +4,14 @@ import EmailList from "../components/EmailList";
 import EmailDetail from "../components/EmailDetail";
 import SettingsModal from "../components/SettingsModal";
 import CategoryModal from "../components/CategoryModal";
+import EmailChatbot from "../components/EmailChatbot";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
 import { useDashboardData } from "../hooks/useDashboardData";
 
 export default function DashboardPage() {
   const {
     selectedAccount,
+    emails,
     emailsSyncing,
     emailsRecategorizing,
     syncEmails,
@@ -19,6 +21,16 @@ export default function DashboardPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+
+  const stats = {
+    total: emails.length,
+    replied: emails.filter((e) => e.has_reply || e.replied_at).length,
+    done: emails.filter((e) => e.is_done).length,
+    unreplied: emails.filter(
+      (e) => !(e.has_reply || e.replied_at || e.is_done)
+    ).length,
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface">
@@ -41,8 +53,10 @@ export default function DashboardPage() {
         <DashboardHeader
           selectedAccount={selectedAccount}
           emailsSyncing={emailsSyncing || emailsRecategorizing}
+          stats={selectedAccount ? stats : null}
           onOpenSidebar={() => setSidebarOpen(true)}
           onOpenCategories={() => setCategoryOpen(true)}
+          onOpenChat={() => setChatOpen(true)}
           onSync={syncEmails}
         />
 
@@ -62,6 +76,11 @@ export default function DashboardPage() {
           syncing={emailsSyncing}
         />
       )}
+      <EmailChatbot
+        account={selectedAccount}
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+      />
     </div>
   );
 }

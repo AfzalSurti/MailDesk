@@ -116,8 +116,13 @@ export default function EmailList({ onRefresh }) {
                       {email.subject || "(No Subject)"}
                     </p>
                     {email.is_done && (
-                      <span className="inline-block mt-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                      <span className="inline-block mt-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 mr-1">
                         Done
+                      </span>
+                    )}
+                    {(email.has_reply || email.replied_at) && (
+                      <span className="inline-block mt-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-sky-100 text-sky-800">
+                        Reply given
                       </span>
                     )}
                   </div>
