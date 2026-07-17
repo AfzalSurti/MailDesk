@@ -11,6 +11,7 @@ from app.auth.utils import get_current_user
 from app.categories.models import Category
 from app.database import get_db
 from app.emails.ai_service import ClassificationAPIError, classify_email
+from app.emails.chat_cache import invalidate_account_cache
 from app.emails.chat_service import answer_email_question
 from app.emails.models import EmailMessage
 from app.emails.openrouter_client import OpenRouterError
@@ -93,6 +94,7 @@ class ChatResponse(BaseModel):
     reply: str
     model: str
     emails_used: int
+    cached: bool = False
 
 
 def _to_email_item(record: EmailMessage) -> EmailItem:
@@ -186,6 +188,7 @@ async def sync_account_emails_endpoint(
 
     try:
         stored = await sync_account_emails(db, account, days=days)
+        await invalidate_account_cache(db, account.id)
     except ClassificationAPIError as exc:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED
@@ -219,11 +222,12 @@ async def chat_about_emails(
     try:
         from app.config import settings
 
-        reply = await answer_email_question(
+        reply, cached = await answer_email_question(
             db,
-            account.id,
-            account.email_address,
-            message,
+            user_id=user.id,
+            account_id=account.id,
+            account_email=account.email_address,
+            question=message,
             history=[item.model_dump() for item in body.history],
         )
         stored = await list_account_emails(db, account.id)
@@ -231,6 +235,7 @@ async def chat_about_emails(
             reply=reply,
             model=settings.openrouter_model_name,
             emails_used=min(len(stored), 40),
+            cached=cached,
         )
     except OpenRouterError as exc:
         raise HTTPException(
@@ -251,6 +256,7 @@ async def recategorize_all_emails_endpoint(
 
     try:
         stored = await recategorize_all_emails(db, account)
+        await invalidate_account_cache(db, account.id)
     except ClassificationAPIError as exc:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED
@@ -280,6 +286,7 @@ async def categorize_stored_email_endpoint(
     try:
         account = await _get_account_or_404(db, user, account_id)
         matched = await categorize_stored_email(db, account, account_id, gmail_uid)
+        await invalidate_account_cache(db, account.id)
     except ClassificationAPIError as exc:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED
@@ -323,6 +330,7 @@ async def update_email_status_endpoint(
     if not body.is_done:
         email.replied_at = None
     await db.commit()
+    await invalidate_account_cache(db, account.id)
 
     stored = await list_account_emails(db, account.id)
     return _sync_response(account, stored)
@@ -356,6 +364,7 @@ async def mark_replied_done_endpoint(
         email.is_done = True
         email.done_at = now
     await db.commit()
+    await invalidate_account_cache(db, account.id)
 
     stored = await list_account_emails(db, account.id)
     return _sync_response(account, stored)
