@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,9 +20,8 @@ from app.emails.sync_service import (
     categorize_stored_email,
     compute_inbox_stats,
     list_account_emails,
-    recategorize_all_emails,
-    sync_account_emails,
 )
+from app.jobs.service import create_job, execute_job
 
 router = APIRouter()
 
@@ -96,6 +95,13 @@ class ChatResponse(BaseModel):
     model: str
     emails_used: int
     cached: bool = False
+
+
+class JobEnqueueResponse(BaseModel):
+    job_id: uuid.UUID
+    status: str
+    job_type: str
+    message: str
 
 
 def _to_email_item(record: EmailMessage) -> EmailItem:
@@ -178,32 +184,29 @@ async def list_stored_account_emails(
     return _sync_response(account, stored)
 
 
-@router.post("/{account_id}/sync", response_model=SyncResponse)
+@router.post("/{account_id}/sync", response_model=JobEnqueueResponse)
 async def sync_account_emails_endpoint(
     account_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     days: int = 3,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     account = await _get_account_or_404(db, user, account_id)
-
-    try:
-        stored = await sync_account_emails(db, account, days=days)
-        await invalidate_account_cache(db, account.id)
-    except ClassificationAPIError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED
-            if exc.status_code in (401, 402, 403)
-            else status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to sync emails from Gmail: {exc}",
-        ) from exc
-
-    return _sync_response(account, stored)
+    _ = days  # reserved; worker uses the standard 3-day window
+    job = await create_job(
+        db,
+        user_id=user.id,
+        account_id=account.id,
+        job_type="sync",
+    )
+    background_tasks.add_task(execute_job, job.id)
+    return JobEnqueueResponse(
+        job_id=job.id,
+        status=job.status,
+        job_type=job.job_type,
+        message="Sync queued",
+    )
 
 
 @router.post("/{account_id}/chat", response_model=ChatResponse)
@@ -248,33 +251,27 @@ async def chat_about_emails(
         ) from exc
 
 
-@router.post("/{account_id}/recategorize", response_model=SyncResponse)
+@router.post("/{account_id}/recategorize", response_model=JobEnqueueResponse)
 async def recategorize_all_emails_endpoint(
     account_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     account = await _get_account_or_404(db, user, account_id)
-
-    try:
-        stored = await recategorize_all_emails(db, account)
-        await invalidate_account_cache(db, account.id)
-    except ClassificationAPIError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED
-            if exc.status_code in (401, 402, 403)
-            else status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Bulk re-categorization failed: {exc}",
-        ) from exc
-
-    return _sync_response(account, stored)
+    job = await create_job(
+        db,
+        user_id=user.id,
+        account_id=account.id,
+        job_type="recategorize",
+    )
+    background_tasks.add_task(execute_job, job.id)
+    return JobEnqueueResponse(
+        job_id=job.id,
+        status=job.status,
+        job_type=job.job_type,
+        message="Re-categorize queued",
+    )
 
 
 @router.post("/{account_id}/{gmail_uid}/categorize", response_model=CategorizeResponse)

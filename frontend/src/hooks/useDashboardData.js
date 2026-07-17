@@ -4,6 +4,23 @@ import api from "../lib/axios";
 import useStore, { getSavedAccountId } from "../store/useStore";
 
 const POLL_MS = 800;
+const JOB_POLL_MS = 1000;
+const JOB_TIMEOUT_MS = 10 * 60 * 1000;
+
+async function waitForJob(jobId) {
+  const started = Date.now();
+  while (Date.now() - started < JOB_TIMEOUT_MS) {
+    const { data } = await api.get(`/jobs/${jobId}`);
+    if (data.status === "completed") return data;
+    if (data.status === "failed") {
+      const err = new Error(data.error || "Job failed");
+      err.job = data;
+      throw err;
+    }
+    await new Promise((r) => setTimeout(r, JOB_POLL_MS));
+  }
+  throw new Error("Job timed out");
+}
 
 export function useDashboardData() {
   const {
@@ -95,13 +112,16 @@ export function useDashboardData() {
     startPolling(selectedAccount.id);
 
     try {
-      const res = await api.post(`/emails/${selectedAccount.id}/sync`);
-      setEmails(res.data.emails || []);
+      const { data: queued } = await api.post(
+        `/emails/${selectedAccount.id}/sync`
+      );
+      const job = await waitForJob(queued.job_id);
+      await refreshEmails(selectedAccount.id);
       toast.success(
-        `Synced ${res.data.emails?.length || 0} emails from the last 3 days`
+        `Synced ${job.result?.count ?? 0} emails from the last 3 days`
       );
     } catch (err) {
-      const detail = err.response?.data?.detail;
+      const detail = err.response?.data?.detail || err.message;
       toast.error(
         typeof detail === "string"
           ? detail
@@ -114,12 +134,11 @@ export function useDashboardData() {
   }, [
     selectedAccount,
     emailsSyncing,
-    setEmails,
-    setEmailsSyncing,
     emailsRecategorizing,
-    setEmailsRecategorizing,
+    setEmailsSyncing,
     startPolling,
     stopPolling,
+    refreshEmails,
   ]);
 
   const recategorizeAll = useCallback(async () => {
@@ -129,11 +148,14 @@ export function useDashboardData() {
     startPolling(selectedAccount.id);
 
     try {
-      const res = await api.post(`/emails/${selectedAccount.id}/recategorize`);
-      setEmails(res.data.emails || []);
-      toast.success(`Re-categorized ${res.data.emails?.length || 0} emails`);
+      const { data: queued } = await api.post(
+        `/emails/${selectedAccount.id}/recategorize`
+      );
+      const job = await waitForJob(queued.job_id);
+      await refreshEmails(selectedAccount.id);
+      toast.success(`Re-categorized ${job.result?.count ?? 0} emails`);
     } catch (err) {
-      const detail = err.response?.data?.detail;
+      const detail = err.response?.data?.detail || err.message;
       toast.error(
         typeof detail === "string"
           ? detail
@@ -147,10 +169,10 @@ export function useDashboardData() {
     selectedAccount,
     emailsRecategorizing,
     emailsSyncing,
-    setEmails,
     setEmailsRecategorizing,
     startPolling,
     stopPolling,
+    refreshEmails,
   ]);
 
   return {

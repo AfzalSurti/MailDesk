@@ -5,6 +5,7 @@ from app.auth.router import router as auth_router
 from app.accounts.router import router as accounts_router
 from app.categories.router import router as categories_router
 from app.emails.router import router as emails_router
+from app.jobs.router import router as jobs_router
 
 app = FastAPI(title="MailDesk API", version="1.0.0")
 
@@ -20,6 +21,7 @@ app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 app.include_router(accounts_router, prefix="/accounts", tags=["Accounts"])
 app.include_router(categories_router, prefix="/categories", tags=["Categories"])
 app.include_router(emails_router, prefix="/emails", tags=["Emails"])
+app.include_router(jobs_router, prefix="/jobs", tags=["Jobs"])
 
 @app.get("/health")
 async def health():
