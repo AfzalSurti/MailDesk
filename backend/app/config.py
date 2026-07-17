@@ -40,6 +40,7 @@ class Settings(BaseSettings):
         default="openai/gpt-4o-mini",
         validation_alias=AliasChoices("MODEL_NAME", "OPENROUTER_MODEL"),
     )
+    EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
     FRONTEND_URL: str
     BACKEND_URL: str = "http://localhost:8000"
     GOOGLE_CLIENT_ID: str = Field(

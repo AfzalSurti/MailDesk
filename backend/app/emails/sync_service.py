@@ -298,8 +298,15 @@ async def sync_account_emails(
 
     emails = await list_account_emails(db, account.id)
     from app.emails.inbox_digest import refresh_inbox_digest
+    from app.emails.rag import index_account_emails
 
     await refresh_inbox_digest(db, account, emails)
+    await index_account_emails(
+        db,
+        user_id=account.user_id,
+        account_id=account.id,
+        emails=emails,
+    )
     return emails
 
 
@@ -336,6 +343,13 @@ async def recategorize_all_emails(
 
     emails = await list_account_emails(db, account.id)
     from app.emails.inbox_digest import refresh_inbox_digest
+    from app.emails.rag import index_account_emails
 
     await refresh_inbox_digest(db, account, emails)
+    await index_account_emails(
+        db,
+        user_id=account.user_id,
+        account_id=account.id,
+        emails=emails,
+    )
     return emails

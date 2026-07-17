@@ -173,5 +173,67 @@ class OpenRouterClient:
 
         raise last_error or OpenRouterError("All OpenRouter API keys failed")
 
+    async def embed(
+        self,
+        texts: list[str],
+        *,
+        timeout: float = 60.0,
+    ) -> list[list[float]]:
+        """Return embedding vectors for each text (same order)."""
+        keys = self.keys
+        if not keys:
+            raise OpenRouterError(
+                "No OpenRouter API keys configured. Set OPENROUTER_API_KEY (or API_KEY) in .env"
+            )
+        cleaned = [(" ".join((t or "").split())[:8000] or " ") for t in texts]
+        last_error: OpenRouterError | None = None
+        attempts = len(keys)
+        model = settings.EMBEDDING_MODEL
+
+        for attempt in range(attempts):
+            key = keys[(self._index + attempt) % len(keys)]
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(
+                        f"{settings.OPENROUTER_BASE_URL.rstrip('/')}/embeddings",
+                        headers={
+                            "Authorization": f"Bearer {key}",
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": settings.FRONTEND_URL,
+                            "X-Title": "MailDesk",
+                        },
+                        json={"model": model, "input": cleaned},
+                    )
+
+                    if response.status_code in _RETRYABLE:
+                        last_error = OpenRouterError(
+                            self._error_message(response.status_code, response.text),
+                            status_code=response.status_code,
+                        )
+                        continue
+
+                    if response.status_code >= 400:
+                        raise OpenRouterError(
+                            self._error_message(response.status_code, response.text),
+                            status_code=response.status_code,
+                        )
+
+                    data = response.json()
+                    items = sorted(data.get("data") or [], key=lambda x: x.get("index", 0))
+                    vectors = [item["embedding"] for item in items]
+                    if len(vectors) != len(cleaned):
+                        raise OpenRouterError("Unexpected embeddings response size")
+                    self._index = (self._index + attempt + 1) % len(keys)
+                    return vectors
+            except OpenRouterError:
+                raise
+            except httpx.HTTPError as exc:
+                last_error = OpenRouterError(f"Could not reach OpenRouter API: {exc}")
+                continue
+            except (KeyError, TypeError, ValueError) as exc:
+                raise OpenRouterError("Unexpected embeddings response from OpenRouter") from exc
+
+        raise last_error or OpenRouterError("All OpenRouter API keys failed for embeddings")
+
 
 openrouter = OpenRouterClient()
