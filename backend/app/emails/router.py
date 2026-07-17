@@ -13,6 +13,7 @@ from app.database import get_db
 from app.emails.ai_service import ClassificationAPIError, classify_email
 from app.emails.chat_cache import invalidate_account_cache
 from app.emails.chat_service import answer_email_question
+from app.emails.inbox_digest import refresh_inbox_digest
 from app.emails.models import EmailMessage
 from app.emails.openrouter_client import OpenRouterError
 from app.emails.sync_service import (
@@ -229,6 +230,7 @@ async def chat_about_emails(
             account_email=account.email_address,
             question=message,
             history=[item.model_dump() for item in body.history],
+            account=account,
         )
         stored = await list_account_emails(db, account.id)
         return ChatResponse(
@@ -287,6 +289,8 @@ async def categorize_stored_email_endpoint(
         account = await _get_account_or_404(db, user, account_id)
         matched = await categorize_stored_email(db, account, account_id, gmail_uid)
         await invalidate_account_cache(db, account.id)
+        stored = await list_account_emails(db, account.id)
+        await refresh_inbox_digest(db, account, stored)
     except ClassificationAPIError as exc:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED
@@ -331,8 +335,8 @@ async def update_email_status_endpoint(
         email.replied_at = None
     await db.commit()
     await invalidate_account_cache(db, account.id)
-
     stored = await list_account_emails(db, account.id)
+    await refresh_inbox_digest(db, account, stored)
     return _sync_response(account, stored)
 
 
@@ -365,8 +369,8 @@ async def mark_replied_done_endpoint(
         email.done_at = now
     await db.commit()
     await invalidate_account_cache(db, account.id)
-
     stored = await list_account_emails(db, account.id)
+    await refresh_inbox_digest(db, account, stored)
     return _sync_response(account, stored)
 
 

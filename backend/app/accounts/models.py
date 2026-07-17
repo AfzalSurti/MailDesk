@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from datetime import datetime
@@ -17,3 +17,5 @@ class GmailAccount(Base):
     app_password = Column(String(500), nullable=False)
     display_name = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    inbox_digest = Column(Text, nullable=True)
+    inbox_digest_updated_at = Column(DateTime, nullable=True)

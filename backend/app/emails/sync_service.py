@@ -296,7 +296,11 @@ async def sync_account_emails(
     # Phase 3: apply AI categorization after all emails are stored
     await _categorize_account_emails(db, account, fetched_uids)
 
-    return await list_account_emails(db, account.id)
+    emails = await list_account_emails(db, account.id)
+    from app.emails.inbox_digest import refresh_inbox_digest
+
+    await refresh_inbox_digest(db, account, emails)
+    return emails
 
 
 async def recategorize_all_emails(
@@ -330,4 +334,8 @@ async def recategorize_all_emails(
         await _save_category(db, account.id, email.gmail_uid, classification)
         await db.commit()
 
-    return await list_account_emails(db, account.id)
+    emails = await list_account_emails(db, account.id)
+    from app.emails.inbox_digest import refresh_inbox_digest
+
+    await refresh_inbox_digest(db, account, emails)
+    return emails
