@@ -249,6 +249,11 @@ async def chat_about_emails(
             else status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(exc),
         ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post("/{account_id}/recategorize", response_model=JobEnqueueResponse)

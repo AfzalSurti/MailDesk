@@ -1,23 +1,30 @@
-"""Per-account exact answer cache for the email AI assistant.
+"""Per-account answer cache for the email AI assistant.
 
 Isolation rules (hard):
 - Cache entries are always scoped by user_id + account_id
 - Lookup never returns another user's or another inbox's answer
 - Inbox fingerprint invalidates answers when email state changes
+- Semantic matches also require same user + account + fingerprint
 """
 
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, delete, select
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, delete, select, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Base
 from app.emails.models import EmailMessage
+
+logger = logging.getLogger(__name__)
+
+# Cosine distance threshold for "same meaning" questions (1 - similarity)
+_SEMANTIC_MAX_DISTANCE = 0.08  # ~0.92 similarity
 
 
 class ChatAnswerCache(Base):
@@ -53,10 +60,7 @@ def question_hash(question: str) -> str:
 
 
 def inbox_fingerprint(emails: list[EmailMessage]) -> str:
-    """Hash of synced email state for this account only.
-
-    Any sync / done / reply / category change → new fingerprint → cache miss.
-    """
+    """Hash of synced email state for this account only."""
     parts: list[str] = []
     for email in emails:
         parts.append(
@@ -76,6 +80,10 @@ def inbox_fingerprint(emails: list[EmailMessage]) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def _vector_literal(values: list[float]) -> str:
+    return "[" + ",".join(f"{v:.8f}" for v in values) + "]"
+
+
 async def get_cached_answer(
     db: AsyncSession,
     *,
@@ -84,7 +92,7 @@ async def get_cached_answer(
     question: str,
     fingerprint: str,
 ) -> ChatAnswerCache | None:
-    """Return cached answer only if user + account + question + fingerprint match."""
+    """Exact match first, then same-account semantic match for this fingerprint."""
     q_hash = question_hash(question)
     result = await db.execute(
         select(ChatAnswerCache).where(
@@ -95,13 +103,55 @@ async def get_cached_answer(
         )
     )
     row = result.scalar_one_or_none()
-    if not row:
-        return None
+    if row:
+        row.hit_count = int(row.hit_count or 0) + 1
+        row.last_hit_at = datetime.utcnow()
+        await db.commit()
+        return row
 
-    row.hit_count = int(row.hit_count or 0) + 1
-    row.last_hit_at = datetime.utcnow()
-    await db.commit()
-    return row
+    # Semantic fallback — still locked to this user + account + inbox state
+    try:
+        from app.emails.openrouter_client import openrouter
+
+        if not openrouter.configured:
+            return None
+        vectors = await openrouter.embed([question.strip()[:2000]])
+        qvec = _vector_literal(vectors[0])
+        sem = await db.execute(
+            text(
+                """
+                SELECT id
+                FROM chat_answer_cache
+                WHERE user_id = :user_id
+                  AND account_id = :account_id
+                  AND inbox_fingerprint = :fingerprint
+                  AND question_embedding IS NOT NULL
+                  AND (question_embedding <=> CAST(:q AS vector)) <= :max_dist
+                ORDER BY question_embedding <=> CAST(:q AS vector)
+                LIMIT 1
+                """
+            ),
+            {
+                "user_id": user_id,
+                "account_id": account_id,
+                "fingerprint": fingerprint,
+                "q": qvec,
+                "max_dist": _SEMANTIC_MAX_DISTANCE,
+            },
+        )
+        hit = sem.first()
+        if not hit:
+            return None
+        row = await db.get(ChatAnswerCache, hit.id)
+        if not row or row.user_id != user_id or row.account_id != account_id:
+            return None
+        row.hit_count = int(row.hit_count or 0) + 1
+        row.last_hit_at = datetime.utcnow()
+        await db.commit()
+        return row
+    except Exception:
+        logger.exception("Semantic cache lookup failed")
+        return None
 
 
 async def store_cached_answer(
@@ -126,15 +176,17 @@ async def store_cached_answer(
     )
     row = existing.scalar_one_or_none()
     if row:
-        # Never overwrite another user's row if somehow present
         if row.user_id != user_id:
             return
         row.answer = answer
         row.model = model
         row.question_norm = q_norm
+        cache_id = row.id
     else:
+        cache_id = uuid.uuid4()
         db.add(
             ChatAnswerCache(
+                id=cache_id,
                 user_id=user_id,
                 account_id=account_id,
                 question_hash=q_hash,
@@ -145,6 +197,33 @@ async def store_cached_answer(
             )
         )
     await db.commit()
+
+    # Best-effort question embedding for semantic reuse (same account only)
+    try:
+        from app.emails.openrouter_client import openrouter
+
+        if openrouter.configured:
+            vectors = await openrouter.embed([question.strip()[:2000]])
+            await db.execute(
+                text(
+                    """
+                    UPDATE chat_answer_cache
+                    SET question_embedding = CAST(:embedding AS vector)
+                    WHERE id = :id
+                      AND user_id = :user_id
+                      AND account_id = :account_id
+                    """
+                ),
+                {
+                    "embedding": _vector_literal(vectors[0]),
+                    "id": cache_id,
+                    "user_id": user_id,
+                    "account_id": account_id,
+                },
+            )
+            await db.commit()
+    except Exception:
+        logger.exception("Failed to store question embedding for semantic cache")
 
 
 async def invalidate_account_cache(db: AsyncSession, account_id: uuid.UUID) -> None:
