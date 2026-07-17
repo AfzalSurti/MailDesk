@@ -79,6 +79,7 @@ export default function DashboardPage() {
       <EmailChatbot
         account={selectedAccount}
         open={chatOpen}
+        onOpen={() => setChatOpen(true)}
         onClose={() => setChatOpen(false)}
       />
     </div>
