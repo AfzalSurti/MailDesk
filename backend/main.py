@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.config import settings
 from app.auth.router import router as auth_router
 from app.accounts.router import router as accounts_router
@@ -23,6 +24,44 @@ app.include_router(categories_router, prefix="/categories", tags=["Categories"])
 app.include_router(emails_router, prefix="/emails", tags=["Emails"])
 app.include_router(jobs_router, prefix="/jobs", tags=["Jobs"])
 
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Return JSON errors so browsers still get CORS headers (unlike bare 500 text)."""
+    message = str(exc)
+    lower = message.lower()
+    if "exceeded the data transfer quota" in lower or "quota" in lower:
+        detail = "Database quota exceeded on Neon. Upgrade the Neon plan or wait for quota reset."
+        status_code = 503
+    elif "connection" in lower or "ssl" in lower or "timeout" in lower:
+        detail = "Database temporarily unavailable. Please try again."
+        status_code = 503
+    else:
+        detail = "Internal server error"
+        status_code = 500
+    return JSONResponse(status_code=status_code, content={"detail": detail})
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/health/db")
+async def health_db():
+    from sqlalchemy import text
+    from app.database import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("select 1"))
+        return {"status": "ok", "database": "connected"}
+    except Exception as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
+                "database": "unavailable",
+                "detail": str(exc)[:300],
+            },
+        )
