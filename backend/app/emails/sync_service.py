@@ -150,7 +150,16 @@ async def list_account_email_summaries(
     return emails
 
 
-async def _upsert_email(db: AsyncSession, account_id, raw: dict, synced_at: datetime) -> None:
+async def _upsert_email(db: AsyncSession, account_id, raw: dict, synced_at: datetime) -> bool:
+    """Insert or update an email. Returns True if this UID was newly inserted."""
+    existing = await db.execute(
+        select(EmailMessage.id).where(
+            EmailMessage.account_id == account_id,
+            EmailMessage.gmail_uid == raw["uid"],
+        )
+    )
+    is_new = existing.scalar_one_or_none() is None
+
     values = {
         "account_id": account_id,
         "gmail_uid": raw["uid"],
@@ -181,6 +190,29 @@ async def _upsert_email(db: AsyncSession, account_id, raw: dict, synced_at: date
         },
     )
     await db.execute(stmt)
+    return is_new
+
+
+async def _prune_emails_older_than(
+    db: AsyncSession,
+    account_id,
+    cutoff: datetime,
+) -> None:
+    """Keep only the rolling window — do not delete merely because incremental fetch omitted them."""
+    from sqlalchemy import and_, or_
+
+    await db.execute(
+        delete(EmailMessage).where(
+            EmailMessage.account_id == account_id,
+            or_(
+                EmailMessage.received_at < cutoff,
+                and_(
+                    EmailMessage.received_at.is_(None),
+                    EmailMessage.synced_at < cutoff,
+                ),
+            ),
+        )
+    )
 
 
 async def _match_sent_replies(
@@ -349,35 +381,53 @@ async def sync_account_emails(
     db: AsyncSession,
     account: GmailAccount,
     days: int = 3,
-) -> list[EmailMessage]:
+) -> tuple[list[EmailMessage], dict]:
+    """Incremental sync when possible.
+
+    - First sync (no last_synced_at): fetch last ``days`` days.
+    - Later syncs: fetch only messages newer than last_synced_at.
+    - Categorize only newly inserted emails.
+    - Prune DB rows older than the rolling ``days`` window.
+    """
+    from datetime import timedelta
+
     now = datetime.utcnow()
+    cutoff = now - timedelta(days=days)
+    since = account.last_synced_at
+    # Ignore stale watermark older than the retention window
+    if since is not None and since < cutoff:
+        since = None
+
+    new_uids: set[str] = set()
     fetched_uids: set[str] = set()
 
-    # Phase 1: fetch all emails from Gmail and save to DB
     for raw in iter_fetch_emails(
         account.email_address,
         account.app_password,
         days=days,
+        since=since,
     ):
         uid = raw["uid"]
         fetched_uids.add(uid)
-        await _upsert_email(db, account.id, raw, now)
+        is_new = await _upsert_email(db, account.id, raw, now)
         await db.commit()
+        if is_new:
+            new_uids.add(uid)
 
-    if fetched_uids:
-        await db.execute(
-            delete(EmailMessage).where(
-                EmailMessage.account_id == account.id,
-                EmailMessage.gmail_uid.not_in(fetched_uids),
-            )
-        )
-        await db.commit()
+    # Always drop mail outside the rolling 3-day window
+    await _prune_emails_older_than(db, account.id, cutoff)
+    await db.commit()
 
-    # Phase 2: detect replies already sent from this Gmail account (same day window)
+    # Reply detection for the same retention window
     await _match_sent_replies(db, account, days=days)
 
-    # Phase 3: apply AI categorization after all emails are stored
-    await _categorize_account_emails(db, account, fetched_uids)
+    # Categorize only brand-new messages (not on refresh / not already categorized)
+    if new_uids:
+        await _categorize_account_emails(db, account, new_uids)
+
+    account.last_synced_at = now
+    await db.commit()
+    await db.refresh(account)
 
     emails = await list_account_emails(db, account.id)
     from app.emails.inbox_digest import refresh_inbox_digest
@@ -390,7 +440,13 @@ async def sync_account_emails(
         account_id=account.id,
         emails=emails,
     )
-    return emails
+    return emails, {
+        "count": len(emails),
+        "new_count": len(new_uids),
+        "fetched_count": len(fetched_uids),
+        "incremental": since is not None,
+    }
+
 
 
 async def recategorize_all_emails(

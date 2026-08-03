@@ -31,9 +31,21 @@ class AccountResponse(BaseModel):
     id: uuid.UUID
     email_address: str
     display_name: Optional[str]
+    last_synced_at: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+def _account_response(account: GmailAccount) -> AccountResponse:
+    return AccountResponse(
+        id=account.id,
+        email_address=account.email_address,
+        display_name=account.display_name,
+        last_synced_at=account.last_synced_at.isoformat()
+        if getattr(account, "last_synced_at", None)
+        else None,
+    )
 
 
 @router.get("/", response_model=list[AccountResponse])
@@ -46,7 +58,7 @@ async def get_accounts(
         .where(GmailAccount.user_id == user.id)
         .order_by(GmailAccount.created_at)
     )
-    return result.scalars().all()
+    return [_account_response(a) for a in result.scalars().all()]
 
 
 @router.post("/", response_model=AccountResponse, status_code=status.HTTP_201_CREATED)
@@ -82,7 +94,7 @@ async def add_account(
     await assign_all_user_categories_to_account(db, user.id, account.id)
     await db.commit()
     await db.refresh(account)
-    return account
+    return _account_response(account)
 
 
 @router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -124,4 +136,4 @@ async def update_account(
 
     await db.commit()
     await db.refresh(account)
-    return account
+    return _account_response(account)

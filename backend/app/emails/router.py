@@ -16,6 +16,7 @@ from app.emails.chat_service import answer_email_question
 from app.emails.inbox_digest import refresh_inbox_digest
 from app.emails.models import EmailMessage
 from app.emails.openrouter_client import OpenRouterError
+from app.emails.imap_service import fetch_email_attachment, list_email_attachments
 from app.emails.sync_service import (
     categorize_stored_email,
     compute_inbox_stats,
@@ -184,7 +185,7 @@ async def sync_all_accounts(
 
     responses = []
     for account in accounts:
-        stored = await sync_account_emails(db, account, days=days)
+        stored, _meta = await sync_account_emails(db, account, days=days)
         responses.append(_sync_response(account, stored))
 
     return responses
@@ -215,6 +216,75 @@ async def get_email_detail(
     if not email:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not found")
     return _to_detail_item(email)
+
+
+class AttachmentMeta(BaseModel):
+    part_index: int
+    filename: str
+    content_type: str
+    size: int
+
+
+@router.get("/{account_id}/{gmail_uid}/attachments", response_model=list[AttachmentMeta])
+async def list_attachments_endpoint(
+    account_id: uuid.UUID,
+    gmail_uid: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """List attachments from Gmail IMAP on demand — not stored in Neon."""
+    account = await _get_account_or_404(db, user, account_id)
+    try:
+        items = list_email_attachments(
+            account.email_address,
+            account.app_password,
+            gmail_uid,
+        )
+        return [AttachmentMeta(**item) for item in items]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not list attachments: {exc}",
+        ) from exc
+
+
+@router.get("/{account_id}/{gmail_uid}/attachments/{part_index}")
+async def download_attachment_endpoint(
+    account_id: uuid.UUID,
+    gmail_uid: str,
+    part_index: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Download one attachment from Gmail — not stored in the database."""
+    from fastapi.responses import Response
+    from urllib.parse import quote
+
+    account = await _get_account_or_404(db, user, account_id)
+    try:
+        item = fetch_email_attachment(
+            account.email_address,
+            account.app_password,
+            gmail_uid,
+            part_index,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Attachment not found") from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not download attachment: {exc}",
+        ) from exc
+
+    filename = item["filename"] or "attachment"
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"
+    }
+    return Response(
+        content=item["data"],
+        media_type=item["content_type"],
+        headers=headers,
+    )
 
 
 @router.post("/{account_id}/sync", response_model=JobEnqueueResponse)

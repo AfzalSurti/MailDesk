@@ -1,5 +1,8 @@
 import { Inbox, Mail, RefreshCw } from "lucide-react";
-import useStore from "../store/useStore";
+import useStore, {
+  isAccountRecategorizing,
+  isAccountSyncing,
+} from "../store/useStore";
 import { stripHtml } from "../utils/stripHtml";
 import { formatEmailDate, formatSender } from "../utils/format";
 import EmptyState from "./ui/EmptyState";
@@ -18,15 +21,17 @@ function ListShell({ children, className = "" }) {
 }
 
 export default function EmailList({ onRefresh }) {
-  const {
-    emails,
-    emailsLoading,
-    emailsSyncing,
-    emailsRecategorizing,
-    selectedAccount,
-    selectedEmailId,
-    setSelectedEmailId,
-  } = useStore();
+  const emails = useStore((s) => s.emails);
+  const emailsLoading = useStore((s) => s.emailsLoading);
+  const selectedAccount = useStore((s) => s.selectedAccount);
+  const selectedEmailId = useStore((s) => s.selectedEmailId);
+  const setSelectedEmailId = useStore((s) => s.setSelectedEmailId);
+  const emailsSyncing = useStore((s) =>
+    isAccountSyncing(s, selectedAccount?.id)
+  );
+  const emailsRecategorizing = useStore((s) =>
+    isAccountRecategorizing(s, selectedAccount?.id)
+  );
 
   const hiddenOnMobile = selectedEmailId ? "hidden md:flex" : "flex";
   const showInitialLoader = emailsLoading && emails.length === 0 && !emailsSyncing;

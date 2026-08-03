@@ -19,3 +19,4 @@ class GmailAccount(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     inbox_digest = Column(Text, nullable=True)
     inbox_digest_updated_at = Column(DateTime, nullable=True)
+    last_synced_at = Column(DateTime, nullable=True)

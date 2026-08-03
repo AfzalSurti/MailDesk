@@ -1,7 +1,11 @@
 import { useEffect, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
 import api from "../lib/axios";
-import useStore, { getSavedAccountId } from "../store/useStore";
+import useStore, {
+  getSavedAccountId,
+  isAccountRecategorizing,
+  isAccountSyncing,
+} from "../store/useStore";
 
 const JOB_POLL_MS = 1200;
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
@@ -21,7 +25,6 @@ async function waitForJob(jobId) {
   throw new Error("Job timed out");
 }
 
-/** Merge slim list rows while keeping any already-loaded full bodies. */
 function mergeEmailList(previous, nextList) {
   const prevById = Object.fromEntries((previous || []).map((e) => [e.id, e]));
   return (nextList || []).map((row) => {
@@ -33,6 +36,7 @@ function mergeEmailList(previous, nextList) {
         body_html: prev.body_html,
         reply_body: prev.reply_body,
         reply_body_html: prev.reply_body_html,
+        attachments: prev.attachments,
         bodyLoaded: true,
       };
     }
@@ -41,42 +45,54 @@ function mergeEmailList(previous, nextList) {
 }
 
 export function useDashboardData() {
-  const {
-    selectedAccount,
-    emails,
-    emailsLoading,
-    emailsSyncing,
-    emailsRecategorizing,
-    setAccounts,
-    setSelectedAccount,
-    setEmails,
-    setEmailsLoading,
-    setEmailsSyncing,
-    setEmailsRecategorizing,
-    setSelectedEmailId,
-  } = useStore();
+  const selectedAccount = useStore((s) => s.selectedAccount);
+  const emails = useStore((s) => s.emails);
+  const emailsLoading = useStore((s) => s.emailsLoading);
+  const setAccounts = useStore((s) => s.setAccounts);
+  const setSelectedAccount = useStore((s) => s.setSelectedAccount);
+  const setEmailsForAccount = useStore((s) => s.setEmailsForAccount);
+  const setEmailsLoading = useStore((s) => s.setEmailsLoading);
+  const setSelectedEmailId = useStore((s) => s.setSelectedEmailId);
+  const setAccountSyncing = useStore((s) => s.setAccountSyncing);
+  const setAccountRecategorizing = useStore((s) => s.setAccountRecategorizing);
+  const emailsByAccount = useStore((s) => s.emailsByAccount);
 
-  const emailsRef = useRef(emails);
-  useEffect(() => {
-    emailsRef.current = emails;
-  }, [emails]);
+  const emailsSyncing = useStore((s) =>
+    isAccountSyncing(s, selectedAccount?.id)
+  );
+  const emailsRecategorizing = useStore((s) =>
+    isAccountRecategorizing(s, selectedAccount?.id)
+  );
 
   const refreshEmails = useCallback(
     async (accountId, { silent = false } = {}) => {
+      if (!accountId) return;
       if (!silent) setEmailsLoading(true);
       try {
         const res = await api.get(`/emails/${accountId}`);
-        setEmails(mergeEmailList(emailsRef.current, res.data.emails || []));
+        const prev = useStore.getState().emailsByAccount[accountId] || [];
+        // Never write another account's response into the wrong inbox
+        if (useStore.getState().selectedAccount?.id !== accountId) {
+          setEmailsForAccount(
+            accountId,
+            mergeEmailList(prev, res.data.emails || [])
+          );
+          return;
+        }
+        setEmailsForAccount(
+          accountId,
+          mergeEmailList(prev, res.data.emails || [])
+        );
       } catch {
-        if (!silent) {
+        if (!silent && useStore.getState().selectedAccount?.id === accountId) {
           toast.error("Failed to load saved emails");
-          setEmails([]);
+          setEmailsForAccount(accountId, []);
         }
       } finally {
         if (!silent) setEmailsLoading(false);
       }
     },
-    [setEmails, setEmailsLoading]
+    [setEmailsForAccount, setEmailsLoading]
   );
 
   useEffect(() => {
@@ -102,29 +118,43 @@ export function useDashboardData() {
     load();
   }, [setAccounts, setSelectedAccount]);
 
-  // Clicking a mail ID loads its inbox from DB only (no re-categorize)
+  // Clicking a mail ID loads that account's inbox only (no re-categorize)
   useEffect(() => {
     if (!selectedAccount) {
-      setEmails([]);
       return;
     }
     setSelectedEmailId(null);
-    refreshEmails(selectedAccount.id);
-  }, [selectedAccount?.id, refreshEmails, setEmails, setSelectedEmailId]);
+    const cached = emailsByAccount[selectedAccount.id];
+    if (cached?.length) {
+      // show cache instantly, refresh quietly
+      refreshEmails(selectedAccount.id, { silent: true });
+    } else {
+      refreshEmails(selectedAccount.id);
+    }
+  }, [selectedAccount?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const syncEmails = useCallback(async () => {
-    if (!selectedAccount || emailsSyncing || emailsRecategorizing) return;
+    const account = useStore.getState().selectedAccount;
+    if (!account) return;
+    const accountId = account.id;
+    if (
+      isAccountSyncing(useStore.getState(), accountId) ||
+      isAccountRecategorizing(useStore.getState(), accountId)
+    ) {
+      return;
+    }
 
-    setEmailsSyncing(true);
+    setAccountSyncing(accountId, true);
     try {
-      const { data: queued } = await api.post(
-        `/emails/${selectedAccount.id}/sync`
-      );
-      // Poll job status only — do not refetch full inbox every 800ms
+      const { data: queued } = await api.post(`/emails/${accountId}/sync`);
       const job = await waitForJob(queued.job_id);
-      await refreshEmails(selectedAccount.id);
+      await refreshEmails(accountId, { silent: true });
+      const n = job.result?.new_count ?? 0;
+      const total = job.result?.count ?? 0;
       toast.success(
-        `Synced ${job.result?.count ?? 0} emails from the last 3 days`
+        job.result?.incremental
+          ? `Synced ${n} new email${n === 1 ? "" : "s"} (${total} in inbox)`
+          : `Synced ${total} emails from the last 3 days`
       );
     } catch (err) {
       const detail = err.response?.data?.detail || err.message;
@@ -134,26 +164,28 @@ export function useDashboardData() {
           : "Failed to sync emails from Gmail"
       );
     } finally {
-      setEmailsSyncing(false);
+      setAccountSyncing(accountId, false);
     }
-  }, [
-    selectedAccount,
-    emailsSyncing,
-    emailsRecategorizing,
-    setEmailsSyncing,
-    refreshEmails,
-  ]);
+  }, [refreshEmails, setAccountSyncing]);
 
   const recategorizeAll = useCallback(async () => {
-    if (!selectedAccount || emailsRecategorizing || emailsSyncing) return;
+    const account = useStore.getState().selectedAccount;
+    if (!account) return;
+    const accountId = account.id;
+    if (
+      isAccountSyncing(useStore.getState(), accountId) ||
+      isAccountRecategorizing(useStore.getState(), accountId)
+    ) {
+      return;
+    }
 
-    setEmailsRecategorizing(true);
+    setAccountRecategorizing(accountId, true);
     try {
       const { data: queued } = await api.post(
-        `/emails/${selectedAccount.id}/recategorize`
+        `/emails/${accountId}/recategorize`
       );
       const job = await waitForJob(queued.job_id);
-      await refreshEmails(selectedAccount.id);
+      await refreshEmails(accountId, { silent: true });
       toast.success(`Re-categorized ${job.result?.count ?? 0} emails`);
     } catch (err) {
       const detail = err.response?.data?.detail || err.message;
@@ -163,15 +195,9 @@ export function useDashboardData() {
           : "Bulk re-categorization failed"
       );
     } finally {
-      setEmailsRecategorizing(false);
+      setAccountRecategorizing(accountId, false);
     }
-  }, [
-    selectedAccount,
-    emailsRecategorizing,
-    emailsSyncing,
-    setEmailsRecategorizing,
-    refreshEmails,
-  ]);
+  }, [refreshEmails, setAccountRecategorizing]);
 
   return {
     selectedAccount,

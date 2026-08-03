@@ -1,24 +1,44 @@
 import { useState, useMemo, useEffect } from "react";
-import { ArrowLeft, CheckCircle2, Mail, RefreshCw, Reply, Sparkles, X } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Download,
+  Mail,
+  Paperclip,
+  RefreshCw,
+  Reply,
+  Sparkles,
+  X,
+} from "lucide-react";
 import toast from "react-hot-toast";
-import useStore, { selectEmailById } from "../store/useStore";
+import useStore, { isAccountSyncing, selectEmailById } from "../store/useStore";
 import api from "../lib/axios";
 import { sanitizeEmailHtml, stripHtml } from "../utils/stripHtml";
 import EmptyState from "./ui/EmptyState";
 import CategoryBadge from "./ui/CategoryBadge";
 
+function formatBytes(n) {
+  if (!n && n !== 0) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function EmailDetail() {
-  const {
-    selectedAccount,
-    selectedEmailId,
-    setSelectedEmailId,
-    emails,
-    setEmails,
-    emailsSyncing,
-  } = useStore();
+  const selectedAccount = useStore((s) => s.selectedAccount);
+  const selectedEmailId = useStore((s) => s.selectedEmailId);
+  const setSelectedEmailId = useStore((s) => s.setSelectedEmailId);
+  const emails = useStore((s) => s.emails);
+  const setEmails = useStore((s) => s.setEmails);
+  const emailsSyncing = useStore((s) =>
+    isAccountSyncing(s, selectedAccount?.id)
+  );
   const [categorizing, setCategorizing] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [loadingBody, setLoadingBody] = useState(false);
+  const [attachments, setAttachments] = useState([]);
+  const [loadingAttachments, setLoadingAttachments] = useState(false);
+  const [downloadingPart, setDownloadingPart] = useState(null);
 
   const selectedEmail = useMemo(
     () => selectEmailById(emails, selectedEmailId),
@@ -67,6 +87,56 @@ export default function EmailDetail() {
     selectedEmail?.bodyLoaded,
     setEmails,
   ]);
+
+  // Attachments from Gmail on open — not stored in DB
+  useEffect(() => {
+    if (!selectedAccount?.id || !selectedEmailId) {
+      setAttachments([]);
+      return;
+    }
+    let cancelled = false;
+    const loadAttachments = async () => {
+      setLoadingAttachments(true);
+      setAttachments([]);
+      try {
+        const { data } = await api.get(
+          `/emails/${selectedAccount.id}/${selectedEmailId}/attachments`
+        );
+        if (!cancelled) setAttachments(data || []);
+      } catch {
+        if (!cancelled) setAttachments([]);
+      } finally {
+        if (!cancelled) setLoadingAttachments(false);
+      }
+    };
+    loadAttachments();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAccount?.id, selectedEmailId]);
+
+  const downloadAttachment = async (partIndex, filename) => {
+    if (!selectedAccount?.id || !selectedEmailId) return;
+    setDownloadingPart(partIndex);
+    try {
+      const res = await api.get(
+        `/emails/${selectedAccount.id}/${selectedEmailId}/attachments/${partIndex}`,
+        { responseType: "blob" }
+      );
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "attachment";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Failed to download attachment");
+    } finally {
+      setDownloadingPart(null);
+    }
+  };
 
   const panelClass = `flex-1 flex flex-col bg-card overflow-hidden min-h-0 min-w-0 ${
     selectedEmailId ? "flex" : "hidden md:flex"
@@ -336,6 +406,51 @@ export default function EmailDetail() {
                 )}
               </section>
             )}
+
+            <section className="border-t border-border pt-6">
+              <div className="flex items-center gap-2 mb-3">
+                <Paperclip className="w-4 h-4 text-muted" />
+                <h4 className="text-sm font-semibold text-ink">Attachments</h4>
+                {loadingAttachments && (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-muted" />
+                )}
+              </div>
+              {!loadingAttachments && attachments.length === 0 ? (
+                <p className="text-xs text-muted">No attachments</p>
+              ) : (
+                <ul className="space-y-2">
+                  {attachments.map((att) => (
+                    <li
+                      key={`${att.part_index}-${att.filename}`}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm text-ink truncate">{att.filename}</p>
+                        <p className="text-[11px] text-muted">
+                          {att.content_type}
+                          {att.size ? ` · ${formatBytes(att.size)}` : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          downloadAttachment(att.part_index, att.filename)
+                        }
+                        disabled={downloadingPart === att.part_index}
+                        className="btn-secondary inline-flex items-center gap-1.5 text-xs shrink-0"
+                      >
+                        {downloadingPart === att.part_index ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5" />
+                        )}
+                        Download
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           </div>
         )}
       </div>

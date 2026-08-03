@@ -1,10 +1,9 @@
 import { create } from "zustand";
 
 const SELECTED_ACCOUNT_KEY = "selectedAccountId";
-
 const USER_KEY = "user";
 
-const useStore = create((set) => ({
+const useStore = create((set, get) => ({
   // Auth
   token: localStorage.getItem("token") || null,
   user: (() => {
@@ -30,9 +29,11 @@ const useStore = create((set) => ({
       categories: [],
       selectedAccount: null,
       emails: [],
+      emailsByAccount: {},
       selectedEmailId: null,
-      emailsSyncing: false,
-      emailsRecategorizing: false,
+      syncingAccountIds: {},
+      recategorizingAccountIds: {},
+      emailsLoading: false,
     });
   },
   setToken: (token) => {
@@ -50,13 +51,14 @@ const useStore = create((set) => ({
       categories: [],
       selectedAccount: null,
       emails: [],
+      emailsByAccount: {},
       selectedEmailId: null,
-      emailsSyncing: false,
-      emailsRecategorizing: false,
+      syncingAccountIds: {},
+      recategorizingAccountIds: {},
+      emailsLoading: false,
     });
   },
 
-  // Accounts
   accounts: [],
   setAccounts: (accounts) => set({ accounts }),
   selectedAccount: null,
@@ -66,24 +68,54 @@ const useStore = create((set) => ({
     } else {
       localStorage.removeItem(SELECTED_ACCOUNT_KEY);
     }
-    set({ selectedAccount: account, emails: [], selectedEmailId: null });
+    const cached = account?.id ? get().emailsByAccount[account.id] : null;
+    set({
+      selectedAccount: account,
+      emails: cached || [],
+      selectedEmailId: null,
+    });
   },
 
-  // Categories
   categories: [],
   setCategories: (categories) => set({ categories }),
 
-  // Emails — track selection by ID so polling never shows stale/wrong content
   emails: [],
-  setEmails: (emails) => set({ emails }),
+  emailsByAccount: {},
+  setEmailsForAccount: (accountId, emails) => {
+    const selectedId = get().selectedAccount?.id;
+    set((state) => ({
+      emailsByAccount: { ...state.emailsByAccount, [accountId]: emails },
+      // Only update visible inbox if this account is still selected
+      emails: selectedId === accountId ? emails : state.emails,
+    }));
+  },
+  setEmails: (emails) => {
+    const accountId = get().selectedAccount?.id;
+    if (!accountId) {
+      set({ emails });
+      return;
+    }
+    get().setEmailsForAccount(accountId, emails);
+  },
   selectedEmailId: null,
   setSelectedEmailId: (id) => set({ selectedEmailId: id }),
   emailsLoading: false,
   setEmailsLoading: (val) => set({ emailsLoading: val }),
-  emailsSyncing: false,
-  setEmailsSyncing: (val) => set({ emailsSyncing: val }),
-  emailsRecategorizing: false,
-  setEmailsRecategorizing: (val) => set({ emailsRecategorizing: val }),
+
+  // Per-account busy flags — syncing A must not show spinner on B
+  syncingAccountIds: {},
+  setAccountSyncing: (accountId, busy) =>
+    set((state) => ({
+      syncingAccountIds: { ...state.syncingAccountIds, [accountId]: busy },
+    })),
+  recategorizingAccountIds: {},
+  setAccountRecategorizing: (accountId, busy) =>
+    set((state) => ({
+      recategorizingAccountIds: {
+        ...state.recategorizingAccountIds,
+        [accountId]: busy,
+      },
+    })),
 }));
 
 export default useStore;
@@ -95,4 +127,12 @@ export function getSavedAccountId() {
 export function selectEmailById(emails, selectedEmailId) {
   if (!selectedEmailId) return null;
   return emails.find((e) => e.id === selectedEmailId) ?? null;
+}
+
+export function isAccountSyncing(state, accountId) {
+  return Boolean(accountId && state.syncingAccountIds?.[accountId]);
+}
+
+export function isAccountRecategorizing(state, accountId) {
+  return Boolean(accountId && state.recategorizingAccountIds?.[accountId]);
 }

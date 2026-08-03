@@ -100,9 +100,20 @@ async def execute_job(job_id: uuid.UUID) -> None:
                 raise ValueError("Account not found for this job")
 
             if job.job_type == "sync":
-                emails = await sync_account_emails(db, account, days=3)
+                emails, sync_meta = await sync_account_emails(db, account, days=3)
+                result_payload = {
+                    "count": sync_meta["count"],
+                    "new_count": sync_meta["new_count"],
+                    "fetched_count": sync_meta["fetched_count"],
+                    "incremental": sync_meta["incremental"],
+                    "account_id": str(account.id),
+                }
             elif job.job_type == "recategorize":
                 emails = await recategorize_all_emails(db, account)
+                result_payload = {
+                    "count": len(emails),
+                    "account_id": str(account.id),
+                }
             else:
                 raise ValueError(f"Unknown job type: {job.job_type}")
 
@@ -115,12 +126,7 @@ async def execute_job(job_id: uuid.UUID) -> None:
             job = job_result.scalar_one()
             job.status = "completed"
             job.finished_at = datetime.utcnow()
-            job.result_json = json.dumps(
-                {
-                    "count": len(emails),
-                    "account_id": str(account.id),
-                }
-            )
+            job.result_json = json.dumps(result_payload)
             await db.commit()
         except Exception as exc:
             job_result = await db.execute(
