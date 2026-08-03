@@ -7,9 +7,21 @@ from app.config import settings
 
 
 def normalize_database_url(url: str) -> str:
-    parsed = urlparse(url)
+    """Neon/Render often paste postgresql:// — force asyncpg for SQLAlchemy async."""
+    raw = (url or "").strip()
+    if raw.startswith("postgres://"):
+        raw = "postgresql+asyncpg://" + raw[len("postgres://") :]
+    elif raw.startswith("postgresql://"):
+        raw = "postgresql+asyncpg://" + raw[len("postgresql://") :]
+    elif raw.startswith("postgresql+psycopg2://"):
+        raw = "postgresql+asyncpg://" + raw[len("postgresql+psycopg2://") :]
+
+    parsed = urlparse(raw)
     query = parse_qs(parsed.query)
     query.pop("channel_binding", None)
+    # asyncpg expects ssl=require; Neon often sends sslmode=require
+    if "sslmode" in query and "ssl" not in query:
+        query["ssl"] = query.pop("sslmode")
     clean_query = urlencode({key: values[0] for key, values in query.items()})
     return urlunparse(parsed._replace(query=clean_query))
 
@@ -27,8 +39,10 @@ AsyncSessionLocal = sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False
 )
 
+
 class Base(DeclarativeBase):
     pass
+
 
 async def get_db():
     async with AsyncSessionLocal() as session:
