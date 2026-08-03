@@ -3,8 +3,7 @@ import toast from "react-hot-toast";
 import api from "../lib/axios";
 import useStore, { getSavedAccountId } from "../store/useStore";
 
-const POLL_MS = 800;
-const JOB_POLL_MS = 1000;
+const JOB_POLL_MS = 1200;
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
 async function waitForJob(jobId) {
@@ -20,6 +19,25 @@ async function waitForJob(jobId) {
     await new Promise((r) => setTimeout(r, JOB_POLL_MS));
   }
   throw new Error("Job timed out");
+}
+
+/** Merge slim list rows while keeping any already-loaded full bodies. */
+function mergeEmailList(previous, nextList) {
+  const prevById = Object.fromEntries((previous || []).map((e) => [e.id, e]));
+  return (nextList || []).map((row) => {
+    const prev = prevById[row.id];
+    if (prev?.bodyLoaded) {
+      return {
+        ...row,
+        body: prev.body,
+        body_html: prev.body_html,
+        reply_body: prev.reply_body,
+        reply_body_html: prev.reply_body_html,
+        bodyLoaded: true,
+      };
+    }
+    return { ...row, bodyLoaded: false };
+  });
 }
 
 export function useDashboardData() {
@@ -38,21 +56,17 @@ export function useDashboardData() {
     setSelectedEmailId,
   } = useStore();
 
-  const pollRef = useRef(null);
-
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }, []);
+  const emailsRef = useRef(emails);
+  useEffect(() => {
+    emailsRef.current = emails;
+  }, [emails]);
 
   const refreshEmails = useCallback(
     async (accountId, { silent = false } = {}) => {
       if (!silent) setEmailsLoading(true);
       try {
         const res = await api.get(`/emails/${accountId}`);
-        setEmails(res.data.emails || []);
+        setEmails(mergeEmailList(emailsRef.current, res.data.emails || []));
       } catch {
         if (!silent) {
           toast.error("Failed to load saved emails");
@@ -65,25 +79,18 @@ export function useDashboardData() {
     [setEmails, setEmailsLoading]
   );
 
-  const startPolling = useCallback(
-    (accountId) => {
-      stopPolling();
-      pollRef.current = setInterval(() => {
-        refreshEmails(accountId, { silent: true });
-      }, POLL_MS);
-    },
-    [refreshEmails, stopPolling]
-  );
-
   useEffect(() => {
     const load = async () => {
-      const accounts = await api.get("/accounts/").then((res) => {
-        setAccounts(res.data);
-        return res.data;
-      }).catch(() => {
-        toast.error("Failed to load accounts");
-        return [];
-      });
+      const accounts = await api
+        .get("/accounts/")
+        .then((res) => {
+          setAccounts(res.data);
+          return res.data;
+        })
+        .catch(() => {
+          toast.error("Failed to load accounts");
+          return [];
+        });
 
       const savedId = getSavedAccountId();
       const restored =
@@ -93,9 +100,9 @@ export function useDashboardData() {
       }
     };
     load();
-    return stopPolling;
-  }, [setAccounts, setSelectedAccount, stopPolling]);
+  }, [setAccounts, setSelectedAccount]);
 
+  // Clicking a mail ID loads its inbox from DB only (no re-categorize)
   useEffect(() => {
     if (!selectedAccount) {
       setEmails([]);
@@ -109,12 +116,11 @@ export function useDashboardData() {
     if (!selectedAccount || emailsSyncing || emailsRecategorizing) return;
 
     setEmailsSyncing(true);
-    startPolling(selectedAccount.id);
-
     try {
       const { data: queued } = await api.post(
         `/emails/${selectedAccount.id}/sync`
       );
+      // Poll job status only — do not refetch full inbox every 800ms
       const job = await waitForJob(queued.job_id);
       await refreshEmails(selectedAccount.id);
       toast.success(
@@ -128,7 +134,6 @@ export function useDashboardData() {
           : "Failed to sync emails from Gmail"
       );
     } finally {
-      stopPolling();
       setEmailsSyncing(false);
     }
   }, [
@@ -136,8 +141,6 @@ export function useDashboardData() {
     emailsSyncing,
     emailsRecategorizing,
     setEmailsSyncing,
-    startPolling,
-    stopPolling,
     refreshEmails,
   ]);
 
@@ -145,8 +148,6 @@ export function useDashboardData() {
     if (!selectedAccount || emailsRecategorizing || emailsSyncing) return;
 
     setEmailsRecategorizing(true);
-    startPolling(selectedAccount.id);
-
     try {
       const { data: queued } = await api.post(
         `/emails/${selectedAccount.id}/recategorize`
@@ -162,7 +163,6 @@ export function useDashboardData() {
           : "Bulk re-categorization failed"
       );
     } finally {
-      stopPolling();
       setEmailsRecategorizing(false);
     }
   }, [
@@ -170,8 +170,6 @@ export function useDashboardData() {
     emailsRecategorizing,
     emailsSyncing,
     setEmailsRecategorizing,
-    startPolling,
-    stopPolling,
     refreshEmails,
   ]);
 

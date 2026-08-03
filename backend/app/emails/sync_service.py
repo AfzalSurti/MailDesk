@@ -67,6 +67,89 @@ async def list_account_emails(db: AsyncSession, account_id) -> list[EmailMessage
     return list(result.scalars().all())
 
 
+async def get_account_email(
+    db: AsyncSession,
+    account_id,
+    gmail_uid: str,
+) -> EmailMessage | None:
+    result = await db.execute(
+        select(EmailMessage).where(
+            EmailMessage.account_id == account_id,
+            EmailMessage.gmail_uid == gmail_uid,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+# Columns needed for inbox list / stats — excludes heavy body HTML fields
+_EMAIL_LIST_COLUMNS = (
+    EmailMessage.id,
+    EmailMessage.account_id,
+    EmailMessage.gmail_uid,
+    EmailMessage.subject,
+    EmailMessage.from_address,
+    EmailMessage.date_header,
+    EmailMessage.received_at,
+    EmailMessage.body_preview,
+    EmailMessage.synced_at,
+    EmailMessage.category_id,
+    EmailMessage.category_name,
+    EmailMessage.category_priority,
+    EmailMessage.confidence_score,
+    EmailMessage.is_done,
+    EmailMessage.done_at,
+    EmailMessage.replied_at,
+    EmailMessage.has_reply,
+    EmailMessage.reply_subject,
+    EmailMessage.reply_at,
+)
+
+
+async def list_account_email_summaries(
+    db: AsyncSession,
+    account_id,
+) -> list[EmailMessage]:
+    """Load inbox rows without body / body_html / reply bodies (low Neon transfer)."""
+    result = await db.execute(
+        select(*_EMAIL_LIST_COLUMNS)
+        .where(EmailMessage.account_id == account_id)
+        .order_by(
+            EmailMessage.received_at.desc().nullslast(),
+            EmailMessage.synced_at.desc(),
+        )
+    )
+    rows = result.all()
+    emails: list[EmailMessage] = []
+    for row in rows:
+        email = EmailMessage(
+            id=row.id,
+            account_id=row.account_id,
+            gmail_uid=row.gmail_uid,
+            subject=row.subject or "",
+            from_address=row.from_address or "",
+            date_header=row.date_header or "",
+            received_at=row.received_at,
+            body="",
+            body_html="",
+            body_preview=row.body_preview or "",
+            synced_at=row.synced_at,
+            category_id=row.category_id,
+            category_name=row.category_name,
+            category_priority=row.category_priority,
+            confidence_score=row.confidence_score,
+            is_done=bool(row.is_done),
+            done_at=row.done_at,
+            replied_at=row.replied_at,
+            has_reply=bool(row.has_reply),
+            reply_subject=row.reply_subject,
+            reply_body=None,
+            reply_body_html=None,
+            reply_at=row.reply_at,
+        )
+        emails.append(email)
+    return emails
+
+
 async def _upsert_email(db: AsyncSession, account_id, raw: dict, synced_at: datetime) -> None:
     values = {
         "account_id": account_id,

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { ArrowLeft, CheckCircle2, Mail, RefreshCw, Reply, Sparkles, X } from "lucide-react";
 import toast from "react-hot-toast";
 import useStore, { selectEmailById } from "../store/useStore";
@@ -18,11 +18,55 @@ export default function EmailDetail() {
   } = useStore();
   const [categorizing, setCategorizing] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [loadingBody, setLoadingBody] = useState(false);
 
   const selectedEmail = useMemo(
     () => selectEmailById(emails, selectedEmailId),
     [emails, selectedEmailId]
   );
+
+  // Load full body only when this particular email is opened
+  useEffect(() => {
+    if (!selectedAccount?.id || !selectedEmailId) return;
+    if (selectedEmail?.bodyLoaded) return;
+
+    let cancelled = false;
+    const loadDetail = async () => {
+      setLoadingBody(true);
+      try {
+        const { data } = await api.get(
+          `/emails/${selectedAccount.id}/${selectedEmailId}`
+        );
+        if (cancelled) return;
+        setEmails(
+          (useStore.getState().emails || []).map((e) =>
+            e.id === selectedEmailId
+              ? {
+                  ...e,
+                  ...data,
+                  bodyLoaded: true,
+                }
+              : e
+          )
+        );
+      } catch {
+        if (!cancelled) {
+          toast.error("Failed to load email content");
+        }
+      } finally {
+        if (!cancelled) setLoadingBody(false);
+      }
+    };
+    loadDetail();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedAccount?.id,
+    selectedEmailId,
+    selectedEmail?.bodyLoaded,
+    setEmails,
+  ]);
 
   const panelClass = `flex-1 flex flex-col bg-card overflow-hidden min-h-0 min-w-0 ${
     selectedEmailId ? "flex" : "hidden md:flex"
@@ -54,6 +98,7 @@ export default function EmailDetail() {
   const htmlBody = sanitizeEmailHtml(selectedEmail.body_html);
   const rawPlain = selectedEmail.body || selectedEmail.body_preview || "";
   const plainBody = /<[a-z][\s\S]*>/i.test(rawPlain) ? stripHtml(rawPlain) : rawPlain;
+  const showBodySpinner = loadingBody && !selectedEmail.bodyLoaded;
 
   const recategorize = async () => {
     if (!selectedAccount || categorizing) return;
@@ -64,7 +109,7 @@ export default function EmailDetail() {
       );
       const cat = res.data.category;
       setEmails(
-        emails.map((e) =>
+        useStore.getState().emails.map((e) =>
           e.id === selectedEmail.id
             ? {
                 ...e,
@@ -86,8 +131,25 @@ export default function EmailDetail() {
     }
   };
 
-  const updateEmailsFromResponse = (res) => {
-    setEmails(res.data.emails || []);
+  const mergeListFromResponse = (res) => {
+    const prev = useStore.getState().emails || [];
+    const prevById = Object.fromEntries(prev.map((e) => [e.id, e]));
+    setEmails(
+      (res.data.emails || []).map((row) => {
+        const existing = prevById[row.id];
+        if (existing?.bodyLoaded) {
+          return {
+            ...row,
+            body: existing.body,
+            body_html: existing.body_html,
+            reply_body: existing.reply_body,
+            reply_body_html: existing.reply_body_html,
+            bodyLoaded: true,
+          };
+        }
+        return { ...row, bodyLoaded: false };
+      })
+    );
   };
 
   const markDone = async (nextDoneState) => {
@@ -98,7 +160,7 @@ export default function EmailDetail() {
         `/emails/${selectedAccount.id}/${selectedEmail.id}/status`,
         { is_done: nextDoneState }
       );
-      updateEmailsFromResponse(res);
+      mergeListFromResponse(res);
       toast.success(nextDoneState ? "Marked as done" : "Marked as open");
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to update email status");
@@ -134,7 +196,7 @@ export default function EmailDetail() {
         `/emails/${selectedAccount.id}/${selectedEmail.id}/reply-done`,
         { mark_done: true }
       );
-      updateEmailsFromResponse(res);
+      mergeListFromResponse(res);
       toast.success("Reply noted and email marked as done");
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to update reply status");
@@ -225,48 +287,57 @@ export default function EmailDetail() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6">
-        <div className="max-w-3xl space-y-8">
-          {htmlBody ? (
-            <div
-              key={`html-${selectedEmail.id}`}
-              className="email-body-content"
-              dangerouslySetInnerHTML={{ __html: htmlBody }}
-            />
-          ) : (
-            <p
-              key={`plain-${selectedEmail.id}`}
-              className="text-sm md:text-[15px] text-ink leading-7 whitespace-pre-wrap break-words"
-            >
-              {plainBody || "No content available."}
-            </p>
-          )}
+        {showBodySpinner ? (
+          <div className="flex items-center gap-2 text-muted text-sm py-8">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            Loading message...
+          </div>
+        ) : (
+          <div className="max-w-3xl space-y-8">
+            {htmlBody ? (
+              <div
+                key={`html-${selectedEmail.id}`}
+                className="email-body-content"
+                dangerouslySetInnerHTML={{ __html: htmlBody }}
+              />
+            ) : (
+              <p
+                key={`plain-${selectedEmail.id}`}
+                className="text-sm md:text-[15px] text-ink leading-7 whitespace-pre-wrap break-words"
+              >
+                {plainBody || "No content available."}
+              </p>
+            )}
 
-          {(selectedEmail.has_reply || selectedEmail.reply_body || selectedEmail.reply_body_html) && (
-            <section className="border-t border-border pt-6">
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <h4 className="text-sm font-semibold text-ink">Your reply</h4>
-                {selectedEmail.reply_at && (
-                  <span className="text-[11px] text-muted">{selectedEmail.reply_at}</span>
+            {(selectedEmail.has_reply ||
+              selectedEmail.reply_body ||
+              selectedEmail.reply_body_html) && (
+              <section className="border-t border-border pt-6">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h4 className="text-sm font-semibold text-ink">Your reply</h4>
+                  {selectedEmail.reply_at && (
+                    <span className="text-[11px] text-muted">{selectedEmail.reply_at}</span>
+                  )}
+                </div>
+                {selectedEmail.reply_subject && (
+                  <p className="text-xs text-muted mb-2">{selectedEmail.reply_subject}</p>
                 )}
-              </div>
-              {selectedEmail.reply_subject && (
-                <p className="text-xs text-muted mb-2">{selectedEmail.reply_subject}</p>
-              )}
-              {sanitizeEmailHtml(selectedEmail.reply_body_html) ? (
-                <div
-                  className="email-body-content rounded-xl border border-sky-100 bg-sky-50/40 p-4"
-                  dangerouslySetInnerHTML={{
-                    __html: sanitizeEmailHtml(selectedEmail.reply_body_html),
-                  }}
-                />
-              ) : (
-                <p className="text-sm text-ink leading-7 whitespace-pre-wrap break-words rounded-xl border border-sky-100 bg-sky-50/40 p-4">
-                  {selectedEmail.reply_body || "Reply detected for this email."}
-                </p>
-              )}
-            </section>
-          )}
-        </div>
+                {sanitizeEmailHtml(selectedEmail.reply_body_html) ? (
+                  <div
+                    className="email-body-content rounded-xl border border-sky-100 bg-sky-50/40 p-4"
+                    dangerouslySetInnerHTML={{
+                      __html: sanitizeEmailHtml(selectedEmail.reply_body_html),
+                    }}
+                  />
+                ) : (
+                  <p className="text-sm text-ink leading-7 whitespace-pre-wrap break-words rounded-xl border border-sky-100 bg-sky-50/40 p-4">
+                    {selectedEmail.reply_body || "Reply detected for this email."}
+                  </p>
+                )}
+              </section>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

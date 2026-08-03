@@ -19,7 +19,10 @@ from app.emails.openrouter_client import OpenRouterError
 from app.emails.sync_service import (
     categorize_stored_email,
     compute_inbox_stats,
+    get_account_email,
+    list_account_email_summaries,
     list_account_emails,
+    sync_account_emails,
 )
 from app.jobs.service import create_job, execute_job
 
@@ -33,14 +36,14 @@ class InboxStats(BaseModel):
     done: int = 0
 
 
-class EmailItem(BaseModel):
+class EmailListItem(BaseModel):
+    """Inbox row — no full bodies (keeps Neon transfer low)."""
+
     id: str
     from_address: str
     subject: str
     date: str
     body_preview: str
-    body: str
-    body_html: str = ""
     category_name: str | None = None
     category_priority: str | None = None
     confidence_score: float | None = None
@@ -49,9 +52,16 @@ class EmailItem(BaseModel):
     replied_at: str | None = None
     has_reply: bool = False
     reply_subject: str | None = None
+    reply_at: str | None = None
+
+
+class EmailDetailItem(EmailListItem):
+    """Full email — loaded only when the user opens one message."""
+
+    body: str = ""
+    body_html: str = ""
     reply_body: str | None = None
     reply_body_html: str | None = None
-    reply_at: str | None = None
 
 
 class SyncResponse(BaseModel):
@@ -59,7 +69,7 @@ class SyncResponse(BaseModel):
     email_address: str
     count: int
     stats: InboxStats
-    emails: list[EmailItem]
+    emails: list[EmailListItem]
 
 
 class CategorizeRequest(BaseModel):
@@ -104,15 +114,13 @@ class JobEnqueueResponse(BaseModel):
     message: str
 
 
-def _to_email_item(record: EmailMessage) -> EmailItem:
-    return EmailItem(
+def _to_list_item(record: EmailMessage) -> EmailListItem:
+    return EmailListItem(
         id=record.gmail_uid,
         from_address=record.from_address,
         subject=record.subject,
         date=record.date_header,
         body_preview=record.body_preview,
-        body=record.body,
-        body_html=record.body_html or "",
         category_name=record.category_name,
         category_priority=record.category_priority,
         confidence_score=record.confidence_score,
@@ -121,9 +129,18 @@ def _to_email_item(record: EmailMessage) -> EmailItem:
         replied_at=record.replied_at.isoformat() if record.replied_at else None,
         has_reply=bool(record.has_reply),
         reply_subject=record.reply_subject,
+        reply_at=record.reply_at.isoformat() if record.reply_at else None,
+    )
+
+
+def _to_detail_item(record: EmailMessage) -> EmailDetailItem:
+    base = _to_list_item(record)
+    return EmailDetailItem(
+        **base.model_dump(),
+        body=record.body or "",
+        body_html=record.body_html or "",
         reply_body=record.reply_body,
         reply_body_html=record.reply_body_html,
-        reply_at=record.reply_at.isoformat() if record.reply_at else None,
     )
 
 
@@ -134,7 +151,7 @@ def _sync_response(account: GmailAccount, stored: list[EmailMessage]) -> SyncRes
         email_address=account.email_address,
         count=len(stored),
         stats=InboxStats(**stats),
-        emails=[_to_email_item(e) for e in stored],
+        emails=[_to_list_item(e) for e in stored],
     )
 
 
@@ -179,9 +196,25 @@ async def list_stored_account_emails(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """Load inbox for an account from DB only — no Gmail fetch, no re-categorize."""
     account = await _get_account_or_404(db, user, account_id)
-    stored = await list_account_emails(db, account_id)
+    stored = await list_account_email_summaries(db, account_id)
     return _sync_response(account, stored)
+
+
+@router.get("/{account_id}/{gmail_uid}", response_model=EmailDetailItem)
+async def get_email_detail(
+    account_id: uuid.UUID,
+    gmail_uid: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Load full body for one email when the user opens it."""
+    await _get_account_or_404(db, user, account_id)
+    email = await get_account_email(db, account_id, gmail_uid)
+    if not email:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not found")
+    return _to_detail_item(email)
 
 
 @router.post("/{account_id}/sync", response_model=JobEnqueueResponse)
@@ -291,7 +324,7 @@ async def categorize_stored_email_endpoint(
         account = await _get_account_or_404(db, user, account_id)
         matched = await categorize_stored_email(db, account, account_id, gmail_uid)
         await invalidate_account_cache(db, account.id)
-        stored = await list_account_emails(db, account.id)
+        stored = await list_account_email_summaries(db, account.id)
         await refresh_inbox_digest(db, account, stored)
     except ClassificationAPIError as exc:
         raise HTTPException(
@@ -337,7 +370,7 @@ async def update_email_status_endpoint(
         email.replied_at = None
     await db.commit()
     await invalidate_account_cache(db, account.id)
-    stored = await list_account_emails(db, account.id)
+    stored = await list_account_email_summaries(db, account.id)
     await refresh_inbox_digest(db, account, stored)
     return _sync_response(account, stored)
 
@@ -371,7 +404,7 @@ async def mark_replied_done_endpoint(
         email.done_at = now
     await db.commit()
     await invalidate_account_cache(db, account.id)
-    stored = await list_account_emails(db, account.id)
+    stored = await list_account_email_summaries(db, account.id)
     await refresh_inbox_digest(db, account, stored)
     return _sync_response(account, stored)
 
