@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
 import api from "../lib/axios";
 import useStore, {
@@ -25,23 +25,8 @@ async function waitForJob(jobId) {
   throw new Error("Job timed out");
 }
 
-function mergeEmailList(previous, nextList) {
-  const prevById = Object.fromEntries((previous || []).map((e) => [e.id, e]));
-  return (nextList || []).map((row) => {
-    const prev = prevById[row.id];
-    if (prev?.bodyLoaded) {
-      return {
-        ...row,
-        body: prev.body,
-        body_html: prev.body_html,
-        reply_body: prev.reply_body,
-        reply_body_html: prev.reply_body_html,
-        attachments: prev.attachments,
-        bodyLoaded: true,
-      };
-    }
-    return { ...row, bodyLoaded: false };
-  });
+function withBodiesLoaded(list) {
+  return (list || []).map((row) => ({ ...row, bodyLoaded: true }));
 }
 
 export function useDashboardData() {
@@ -52,10 +37,8 @@ export function useDashboardData() {
   const setSelectedAccount = useStore((s) => s.setSelectedAccount);
   const setEmailsForAccount = useStore((s) => s.setEmailsForAccount);
   const setEmailsLoading = useStore((s) => s.setEmailsLoading);
-  const setSelectedEmailId = useStore((s) => s.setSelectedEmailId);
   const setAccountSyncing = useStore((s) => s.setAccountSyncing);
   const setAccountRecategorizing = useStore((s) => s.setAccountRecategorizing);
-  const emailsByAccount = useStore((s) => s.emailsByAccount);
 
   const emailsSyncing = useStore((s) =>
     isAccountSyncing(s, selectedAccount?.id)
@@ -70,19 +53,7 @@ export function useDashboardData() {
       if (!silent) setEmailsLoading(true);
       try {
         const res = await api.get(`/emails/${accountId}`);
-        const prev = useStore.getState().emailsByAccount[accountId] || [];
-        // Never write another account's response into the wrong inbox
-        if (useStore.getState().selectedAccount?.id !== accountId) {
-          setEmailsForAccount(
-            accountId,
-            mergeEmailList(prev, res.data.emails || [])
-          );
-          return;
-        }
-        setEmailsForAccount(
-          accountId,
-          mergeEmailList(prev, res.data.emails || [])
-        );
+        setEmailsForAccount(accountId, withBodiesLoaded(res.data.emails || []));
       } catch {
         if (!silent && useStore.getState().selectedAccount?.id === accountId) {
           toast.error("Failed to load saved emails");
@@ -97,41 +68,43 @@ export function useDashboardData() {
 
   useEffect(() => {
     const load = async () => {
-      const accounts = await api
-        .get("/accounts/")
-        .then((res) => {
-          setAccounts(res.data);
-          return res.data;
-        })
-        .catch(() => {
-          toast.error("Failed to load accounts");
-          return [];
-        });
+      setEmailsLoading(true);
+      try {
+        const accounts = await api
+          .get("/accounts/")
+          .then((res) => {
+            setAccounts(res.data);
+            return res.data;
+          })
+          .catch(() => {
+            toast.error("Failed to load accounts");
+            return [];
+          });
 
-      const savedId = getSavedAccountId();
-      const restored =
-        accounts.find((a) => a.id === savedId) ?? accounts[0] ?? null;
-      if (restored) {
-        setSelectedAccount(restored);
+        const savedId = getSavedAccountId();
+        const restored =
+          accounts.find((a) => a.id === savedId) ?? accounts[0] ?? null;
+        if (restored) {
+          setSelectedAccount(restored);
+        }
+
+        if (accounts.length) {
+          const { data } = await api.get("/emails/all");
+          for (const inbox of data.inboxes || []) {
+            setEmailsForAccount(
+              inbox.account_id,
+              withBodiesLoaded(inbox.emails || [])
+            );
+          }
+        }
+      } catch {
+        toast.error("Failed to load emails");
+      } finally {
+        setEmailsLoading(false);
       }
     };
     load();
-  }, [setAccounts, setSelectedAccount]);
-
-  // Clicking a mail ID loads that account's inbox only (no re-categorize)
-  useEffect(() => {
-    if (!selectedAccount) {
-      return;
-    }
-    setSelectedEmailId(null);
-    const cached = emailsByAccount[selectedAccount.id];
-    if (cached?.length) {
-      // show cache instantly, refresh quietly
-      refreshEmails(selectedAccount.id, { silent: true });
-    } else {
-      refreshEmails(selectedAccount.id);
-    }
-  }, [selectedAccount?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setAccounts, setSelectedAccount, setEmailsForAccount, setEmailsLoading]);
 
   const syncEmails = useCallback(async () => {
     const account = useStore.getState().selectedAccount;
