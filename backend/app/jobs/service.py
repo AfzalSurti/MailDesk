@@ -142,6 +142,11 @@ async def execute_job(job_id: uuid.UUID) -> None:
                     "new_count": sync_meta["new_count"],
                     "fetched_count": sync_meta["fetched_count"],
                     "incremental": sync_meta["incremental"],
+                    "categorized": sync_meta.get("categorized", 0),
+                    "categorize_skipped": sync_meta.get("categorize_skipped", 0),
+                    "categorize_skip_reason": sync_meta.get(
+                        "categorize_skip_reason"
+                    ),
                     "account_id": str(account.id),
                     "phase": "completed",
                     "done": sync_meta["fetched_count"],

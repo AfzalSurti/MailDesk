@@ -184,7 +184,11 @@ export function useDashboardData() {
           await refreshEmails(accountId, { silent: true });
           synced += 1;
           newEmails += job.result?.new_count ?? 0;
-        } catch (err) {
+          if (job.result?.categorize_skipped > 0) {
+            toast.error(
+              `${account.email_address}: emails fetched, but OpenRouter limit stopped categorizing (${job.result.categorize_skipped} left uncategorized)`
+            );
+          }        } catch (err) {
           failed += 1;
           const detail = err.response?.data?.detail || err.message;
           toast.error(

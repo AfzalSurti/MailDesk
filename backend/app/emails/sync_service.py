@@ -359,10 +359,14 @@ async def _categorize_account_emails(
     account: GmailAccount,
     gmail_uids: set[str],
     progress_cb=None,
-) -> None:
+) -> dict:
+    """Categorize emails. Never raises OpenRouter/limit errors — sync must keep fetched mail.
+
+    Returns ``{categorized, skipped, skip_reason}``.
+    """
     categories = await _load_categories(db, account)
     if not categories or not gmail_uids:
-        return
+        return {"categorized": 0, "skipped": 0, "skip_reason": None}
 
     result = await db.execute(
         select(EmailMessage).where(
@@ -379,21 +383,44 @@ async def _categorize_account_emails(
     if progress_cb:
         await progress_cb({"phase": "categorizing", "done": 0, "total": total})
 
+    categorized = 0
     for index, email in enumerate(emails_to_classify, start=1):
-        classification = await classify_email(
-            subject=email.subject,
-            sender=email.from_address,
-            body_preview=email.body_preview,
-            categories=categories,
-            account_id=str(account.id),
-            uid=email.gmail_uid,
-        )
+        try:
+            classification = await classify_email(
+                subject=email.subject,
+                sender=email.from_address,
+                body_preview=email.body_preview,
+                categories=categories,
+                account_id=str(account.id),
+                uid=email.gmail_uid,
+            )
+        except ClassificationAPIError as exc:
+            # OpenRouter limit / API down: leave remaining emails uncategorized
+            remaining = total - categorized
+            if progress_cb:
+                await progress_cb(
+                    {
+                        "phase": "categorize_skipped",
+                        "done": categorized,
+                        "total": total,
+                        "skip_reason": str(exc),
+                    }
+                )
+            return {
+                "categorized": categorized,
+                "skipped": remaining,
+                "skip_reason": str(exc),
+            }
+
         await _save_category(db, account.id, email.gmail_uid, classification)
         await db.commit()
+        categorized += 1
         if progress_cb:
             await progress_cb(
                 {"phase": "categorizing", "done": index, "total": total}
             )
+
+    return {"categorized": categorized, "skipped": 0, "skip_reason": None}
 
 
 async def sync_account_emails(
@@ -478,9 +505,10 @@ async def sync_account_emails(
     await report({"phase": "matching_replies", "done": 0, "total": 0})
     await _match_sent_replies(db, account, days=days)
 
-    # Categorize only brand-new messages (not on refresh / not already categorized)
+    # Categorize only brand-new messages — OpenRouter failures must not undo fetch
+    categorize_meta = {"categorized": 0, "skipped": 0, "skip_reason": None}
     if new_uids:
-        await _categorize_account_emails(
+        categorize_meta = await _categorize_account_emails(
             db, account, new_uids, progress_cb=progress_cb
         )
 
@@ -492,19 +520,30 @@ async def sync_account_emails(
     from app.emails.inbox_digest import refresh_inbox_digest
     from app.emails.rag import index_account_emails
 
+    # Digests / RAG embeddings also use OpenRouter — never fail the sync over them
     await report({"phase": "indexing", "done": 0, "total": 0})
-    await refresh_inbox_digest(db, account, emails)
-    await index_account_emails(
-        db,
-        user_id=account.user_id,
-        account_id=account.id,
-        emails=emails,
-    )
+    try:
+        await refresh_inbox_digest(db, account, emails)
+    except Exception:
+        pass
+    try:
+        await index_account_emails(
+            db,
+            user_id=account.user_id,
+            account_id=account.id,
+            emails=emails,
+        )
+    except Exception:
+        pass
+
     return emails, {
         "count": len(emails),
         "new_count": len(new_uids),
         "fetched_count": len(fetched_uids),
         "incremental": since is not None,
+        "categorized": categorize_meta["categorized"],
+        "categorize_skipped": categorize_meta["skipped"],
+        "categorize_skip_reason": categorize_meta["skip_reason"],
     }
 
 
@@ -531,15 +570,29 @@ async def recategorize_all_emails(
         await progress_cb({"phase": "categorizing", "done": 0, "total": total})
 
     for index, email in enumerate(emails, start=1):
-        classification = await classify_email(
-            subject=email.subject,
-            sender=email.from_address,
-            body_preview=email.body_preview,
-            categories=categories,
-            account_id=str(account.id),
-            uid=email.gmail_uid,
-            force=True,
-        )
+        try:
+            classification = await classify_email(
+                subject=email.subject,
+                sender=email.from_address,
+                body_preview=email.body_preview,
+                categories=categories,
+                account_id=str(account.id),
+                uid=email.gmail_uid,
+                force=True,
+            )
+        except ClassificationAPIError as exc:
+            # Keep already-categorized rows; stop the rest on OpenRouter limit/API errors
+            if progress_cb:
+                await progress_cb(
+                    {
+                        "phase": "categorize_skipped",
+                        "done": index - 1,
+                        "total": total,
+                        "skip_reason": str(exc),
+                    }
+                )
+            break
+
         await _save_category(db, account.id, email.gmail_uid, classification)
         await db.commit()
         if progress_cb:
@@ -551,11 +604,17 @@ async def recategorize_all_emails(
     from app.emails.inbox_digest import refresh_inbox_digest
     from app.emails.rag import index_account_emails
 
-    await refresh_inbox_digest(db, account, emails)
-    await index_account_emails(
-        db,
-        user_id=account.user_id,
-        account_id=account.id,
-        emails=emails,
-    )
+    try:
+        await refresh_inbox_digest(db, account, emails)
+    except Exception:
+        pass
+    try:
+        await index_account_emails(
+            db,
+            user_id=account.user_id,
+            account_id=account.id,
+            emails=emails,
+        )
+    except Exception:
+        pass
     return emails

@@ -24,8 +24,8 @@ export function formatSyncStatus(syncProgress, { recategorizing = false } = {}) 
       ? `${accountPart}Categorizing ${done}/${jobTotal}`
       : `${accountPart}Categorizing…`;
   }
-  if (phase === "matching_replies") {
-    return `${accountPart}Matching replies…`;
+  if (phase === "categorize_skipped") {
+    return `${accountPart}Fetched — categorize skipped (API limit)`;
   }
   if (phase === "pruning") {
     return `${accountPart}Cleaning old mail…`;
