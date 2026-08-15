@@ -14,6 +14,9 @@ from app.database import Base
 # Soft limits — protect OpenRouter keys on shared plans
 CHAT_LIMIT_PER_HOUR = 40
 CHAT_LIMIT_PER_DAY = 200
+# Count OpenRouter categorize *API calls* (batches), not emails
+CATEGORIZE_API_LIMIT_PER_HOUR = 80
+CATEGORIZE_API_LIMIT_PER_DAY = 500
 
 
 class AIUsageLog(Base):
@@ -103,4 +106,43 @@ async def assert_chat_rate_limit(db: AsyncSession, user_id: uuid.UUID) -> None:
     if (day_count or 0) >= CHAT_LIMIT_PER_DAY:
         raise ValueError(
             f"Daily chat limit reached ({CHAT_LIMIT_PER_DAY}/day). Try again tomorrow."
+        )
+
+
+async def assert_categorize_rate_limit(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Raise ClassificationAPIError-compatible ValueError if categorize API budget is used up."""
+    now = datetime.utcnow()
+    hour_ago = now - timedelta(hours=1)
+    day_ago = now - timedelta(days=1)
+
+    hour_count = await db.scalar(
+        select(func.count())
+        .select_from(AIUsageLog)
+        .where(
+            AIUsageLog.user_id == user_id,
+            AIUsageLog.action == "categorize",
+            AIUsageLog.cached.is_(False),
+            AIUsageLog.created_at >= hour_ago,
+        )
+    )
+    if (hour_count or 0) >= CATEGORIZE_API_LIMIT_PER_HOUR:
+        raise ValueError(
+            f"Categorize rate limit reached ({CATEGORIZE_API_LIMIT_PER_HOUR} API batches/hour). "
+            "Emails still sync; try re-categorize later."
+        )
+
+    day_count = await db.scalar(
+        select(func.count())
+        .select_from(AIUsageLog)
+        .where(
+            AIUsageLog.user_id == user_id,
+            AIUsageLog.action == "categorize",
+            AIUsageLog.cached.is_(False),
+            AIUsageLog.created_at >= day_ago,
+        )
+    )
+    if (day_count or 0) >= CATEGORIZE_API_LIMIT_PER_DAY:
+        raise ValueError(
+            f"Daily categorize limit reached ({CATEGORIZE_API_LIMIT_PER_DAY} API batches/day). "
+            "Emails still sync; try again tomorrow."
         )

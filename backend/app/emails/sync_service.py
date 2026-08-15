@@ -10,9 +10,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.accounts.models import GmailAccount
 from app.categories.models import AccountCategoryAssignment, Category
-from app.emails.ai_service import ClassificationAPIError, classify_email, parse_category_uuid
+from app.emails.ai_service import (
+    CLASSIFY_BATCH_SIZE,
+    ClassificationAPIError,
+    classify_email,
+    classify_emails_batch,
+    parse_category_uuid,
+)
 from app.emails.imap_service import fetch_sent_replies, iter_fetch_emails
 from app.emails.models import EmailMessage
+from app.emails.usage import assert_categorize_rate_limit, log_ai_usage
+from app.config import settings
 
 
 def _next_imap_item(generator):
@@ -359,8 +367,9 @@ async def _categorize_account_emails(
     account: GmailAccount,
     gmail_uids: set[str],
     progress_cb=None,
+    force: bool = False,
 ) -> dict:
-    """Categorize emails. Never raises OpenRouter/limit errors — sync must keep fetched mail.
+    """Categorize emails in OpenRouter batches. Fetch is never rolled back on AI errors.
 
     Returns ``{categorized, skipped, skip_reason}``.
     """
@@ -368,34 +377,68 @@ async def _categorize_account_emails(
     if not categories or not gmail_uids:
         return {"categorized": 0, "skipped": 0, "skip_reason": None}
 
-    result = await db.execute(
-        select(EmailMessage).where(
-            EmailMessage.account_id == account.id,
-            EmailMessage.gmail_uid.in_(gmail_uids),
+    query = select(EmailMessage).where(
+        EmailMessage.account_id == account.id,
+        EmailMessage.gmail_uid.in_(gmail_uids),
+    )
+    if not force:
+        query = query.where(
             or_(
                 EmailMessage.category_name.is_(None),
                 EmailMessage.category_name == "",
-            ),
+            )
         )
-    )
+    result = await db.execute(query)
     emails_to_classify = result.scalars().all()
     total = len(emails_to_classify)
     if progress_cb:
         await progress_cb({"phase": "categorizing", "done": 0, "total": total})
 
+    if not emails_to_classify:
+        return {"categorized": 0, "skipped": 0, "skip_reason": None}
+
+    items = [
+        {
+            "uid": email.gmail_uid,
+            "subject": email.subject,
+            "sender": email.from_address,
+            "body_preview": email.body_preview,
+        }
+        for email in emails_to_classify
+    ]
+
     categorized = 0
-    for index, email in enumerate(emails_to_classify, start=1):
+    # One sync chunk ≈ one OpenRouter batch (rules may shrink the AI set)
+    for start in range(0, len(items), CLASSIFY_BATCH_SIZE):
+        chunk = items[start : start + CLASSIFY_BATCH_SIZE]
+
+        async def gate_api() -> None:
+            try:
+                await assert_categorize_rate_limit(db, account.user_id)
+            except ValueError as exc:
+                raise ClassificationAPIError(str(exc), status_code=429) from exc
+
+        async def log_api(batch_n: int) -> None:
+            await log_ai_usage(
+                db,
+                user_id=account.user_id,
+                account_id=account.id,
+                action="categorize",
+                model=settings.openrouter_model_name,
+                cached=False,
+                meta=f"emails={batch_n}",
+            )
+
         try:
-            classification = await classify_email(
-                subject=email.subject,
-                sender=email.from_address,
-                body_preview=email.body_preview,
-                categories=categories,
+            batch_results = await classify_emails_batch(
+                chunk,
+                categories,
                 account_id=str(account.id),
-                uid=email.gmail_uid,
+                force=force,
+                on_api_batch=gate_api,
+                after_api_batch=log_api,
             )
         except ClassificationAPIError as exc:
-            # OpenRouter limit / API down: leave remaining emails uncategorized
             remaining = total - categorized
             if progress_cb:
                 await progress_cb(
@@ -412,12 +455,21 @@ async def _categorize_account_emails(
                 "skip_reason": str(exc),
             }
 
-        await _save_category(db, account.id, email.gmail_uid, classification)
+        for email in emails_to_classify[start : start + len(chunk)]:
+            classification = batch_results.get(str(email.gmail_uid))
+            if not classification:
+                continue
+            await _save_category(db, account.id, email.gmail_uid, classification)
+            categorized += 1
         await db.commit()
-        categorized += 1
+
         if progress_cb:
             await progress_cb(
-                {"phase": "categorizing", "done": index, "total": total}
+                {
+                    "phase": "categorizing",
+                    "done": min(categorized, total),
+                    "total": total,
+                }
             )
 
     return {"categorized": categorized, "skipped": 0, "skip_reason": None}
@@ -557,48 +609,16 @@ async def recategorize_all_emails(
         raise ValueError("No categories configured")
 
     result = await db.execute(
-        select(EmailMessage)
-        .where(EmailMessage.account_id == account.id)
-        .order_by(
-            EmailMessage.received_at.desc().nullslast(),
-            EmailMessage.synced_at.desc(),
-        )
+        select(EmailMessage.gmail_uid).where(EmailMessage.account_id == account.id)
     )
-    emails = result.scalars().all()
-    total = len(emails)
-    if progress_cb:
-        await progress_cb({"phase": "categorizing", "done": 0, "total": total})
-
-    for index, email in enumerate(emails, start=1):
-        try:
-            classification = await classify_email(
-                subject=email.subject,
-                sender=email.from_address,
-                body_preview=email.body_preview,
-                categories=categories,
-                account_id=str(account.id),
-                uid=email.gmail_uid,
-                force=True,
-            )
-        except ClassificationAPIError as exc:
-            # Keep already-categorized rows; stop the rest on OpenRouter limit/API errors
-            if progress_cb:
-                await progress_cb(
-                    {
-                        "phase": "categorize_skipped",
-                        "done": index - 1,
-                        "total": total,
-                        "skip_reason": str(exc),
-                    }
-                )
-            break
-
-        await _save_category(db, account.id, email.gmail_uid, classification)
-        await db.commit()
-        if progress_cb:
-            await progress_cb(
-                {"phase": "categorizing", "done": index, "total": total}
-            )
+    uids = {row[0] for row in result.all() if row[0]}
+    await _categorize_account_emails(
+        db,
+        account,
+        uids,
+        progress_cb=progress_cb,
+        force=True,
+    )
 
     emails = await list_account_emails(db, account.id)
     from app.emails.inbox_digest import refresh_inbox_digest
