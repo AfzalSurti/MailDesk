@@ -7,6 +7,7 @@ import CategoryModal from "../components/CategoryModal";
 import EmailChatbot from "../components/EmailChatbot";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
 import { useDashboardData } from "../hooks/useDashboardData";
+import useStore from "../store/useStore";
 
 export default function DashboardPage() {
   const {
@@ -14,6 +15,7 @@ export default function DashboardPage() {
     emails,
     emailsSyncing,
     emailsRecategorizing,
+    syncProgress,
     syncEmails,
     recategorizeAll,
   } = useDashboardData();
@@ -22,6 +24,7 @@ export default function DashboardPage() {
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const accounts = useStore((s) => s.accounts);
 
   const stats = {
     total: emails.length,
@@ -53,6 +56,8 @@ export default function DashboardPage() {
         <DashboardHeader
           selectedAccount={selectedAccount}
           emailsSyncing={emailsSyncing || emailsRecategorizing}
+          syncProgress={syncProgress}
+          hasAccounts={accounts.length > 0}
           stats={selectedAccount ? stats : null}
           onOpenSidebar={() => setSidebarOpen(true)}
           onOpenCategories={() => setCategoryOpen(true)}

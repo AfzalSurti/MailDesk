@@ -3,12 +3,20 @@ import { Menu, MessageCircle, RefreshCw } from "lucide-react";
 export default function DashboardHeader({
   selectedAccount,
   emailsSyncing,
+  syncProgress,
   stats,
   onOpenSidebar,
   onOpenCategories,
   onOpenChat,
   onSync,
+  hasAccounts,
 }) {
+  const syncLabel = emailsSyncing
+    ? syncProgress
+      ? `Syncing ${syncProgress.current}/${syncProgress.total}...`
+      : "Syncing..."
+    : "Sync all";
+
   return (
     <header className="bg-card border-b border-border px-4 md:px-5 py-3 shrink-0">
       <div className="flex items-center justify-between gap-4">
@@ -32,6 +40,11 @@ export default function DashboardHeader({
                 {selectedAccount.email_address}
               </p>
             )}
+            {emailsSyncing && syncProgress?.email && (
+              <p className="text-[11px] text-accent truncate mt-0.5">
+                Syncing {syncProgress.email}
+              </p>
+            )}
           </div>
         </div>
 
@@ -53,7 +66,7 @@ export default function DashboardHeader({
           >
             Categories
           </button>
-          {selectedAccount && (
+          {hasAccounts && (
             <button
               type="button"
               onClick={onSync}
@@ -61,7 +74,7 @@ export default function DashboardHeader({
               className="btn-primary inline-flex items-center gap-1.5 text-xs px-3 py-1.5"
             >
               {emailsSyncing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-              {emailsSyncing ? "Syncing..." : "Sync"}
+              {syncLabel}
             </button>
           )}
         </div>

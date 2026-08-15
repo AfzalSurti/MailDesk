@@ -32,6 +32,9 @@ export default function EmailList({ onRefresh }) {
   const emailsRecategorizing = useStore((s) =>
     isAccountRecategorizing(s, selectedAccount?.id)
   );
+  const anySyncing = useStore((s) =>
+    Object.values(s.syncingAccountIds || {}).some(Boolean)
+  );
 
   const hiddenOnMobile = selectedEmailId ? "hidden md:flex" : "flex";
   const showInitialLoader = emailsLoading && emails.length === 0 && !emailsSyncing;
@@ -80,15 +83,19 @@ export default function EmailList({ onRefresh }) {
           Inbox
           <span className="text-muted font-normal ml-1.5">{emails.length}</span>
         </p>
-        {(emailsSyncing || emailsRecategorizing) && (
+        {(emailsSyncing || emailsRecategorizing || anySyncing) && (
           <span className="flex items-center gap-1.5 text-[11px] text-accent font-medium">
             <RefreshCw className="w-3 h-3 animate-spin" />
-            {emailsRecategorizing ? "Re-categorizing" : "Syncing"}
+            {emailsRecategorizing
+              ? "Re-categorizing"
+              : anySyncing
+                ? "Syncing all accounts"
+                : "Syncing"}
           </span>
         )}
       </div>
 
-      {emails.length === 0 && emailsSyncing ? (
+      {emails.length === 0 && (emailsSyncing || anySyncing) ? (
         <div className="flex-1 flex items-center justify-center text-muted text-sm gap-2">
           <RefreshCw className="w-4 h-4 animate-spin" />
           Fetching emails...

@@ -34,6 +34,7 @@ const useStore = create((set, get) => ({
       syncingAccountIds: {},
       recategorizingAccountIds: {},
       emailsLoading: false,
+      syncProgress: null,
     });
   },
   setToken: (token) => {
@@ -56,6 +57,7 @@ const useStore = create((set, get) => ({
       syncingAccountIds: {},
       recategorizingAccountIds: {},
       emailsLoading: false,
+      syncProgress: null,
     });
   },
 
@@ -116,6 +118,8 @@ const useStore = create((set, get) => ({
         [accountId]: busy,
       },
     })),
+  syncProgress: null,
+  setSyncProgress: (val) => set({ syncProgress: val }),
 }));
 
 export default useStore;
@@ -131,6 +135,10 @@ export function selectEmailById(emails, selectedEmailId) {
 
 export function isAccountSyncing(state, accountId) {
   return Boolean(accountId && state.syncingAccountIds?.[accountId]);
+}
+
+export function isAnyAccountSyncing(state) {
+  return Object.values(state.syncingAccountIds || {}).some(Boolean);
 }
 
 export function isAccountRecategorizing(state, accountId) {

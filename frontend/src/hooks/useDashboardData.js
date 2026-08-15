@@ -5,6 +5,7 @@ import useStore, {
   getSavedAccountId,
   isAccountRecategorizing,
   isAccountSyncing,
+  isAnyAccountSyncing,
 } from "../store/useStore";
 
 const JOB_POLL_MS = 1200;
@@ -40,12 +41,12 @@ export function useDashboardData() {
   const setAccountSyncing = useStore((s) => s.setAccountSyncing);
   const setAccountRecategorizing = useStore((s) => s.setAccountRecategorizing);
 
-  const emailsSyncing = useStore((s) =>
-    isAccountSyncing(s, selectedAccount?.id)
-  );
+  const emailsSyncing = useStore((s) => isAnyAccountSyncing(s));
   const emailsRecategorizing = useStore((s) =>
     isAccountRecategorizing(s, selectedAccount?.id)
   );
+  const syncProgress = useStore((s) => s.syncProgress);
+  const setSyncProgress = useStore((s) => s.setSyncProgress);
 
   const refreshEmails = useCallback(
     async (accountId, { silent = false } = {}) => {
@@ -107,39 +108,61 @@ export function useDashboardData() {
   }, [setAccounts, setSelectedAccount, setEmailsForAccount, setEmailsLoading]);
 
   const syncEmails = useCallback(async () => {
-    const account = useStore.getState().selectedAccount;
-    if (!account) return;
-    const accountId = account.id;
-    if (
-      isAccountSyncing(useStore.getState(), accountId) ||
-      isAccountRecategorizing(useStore.getState(), accountId)
-    ) {
+    const accounts = useStore.getState().accounts || [];
+    if (!accounts.length) {
+      toast.error("Add a Gmail account first");
       return;
     }
+    if (isAnyAccountSyncing(useStore.getState())) return;
 
-    setAccountSyncing(accountId, true);
+    let synced = 0;
+    let failed = 0;
+    let newEmails = 0;
+
     try {
-      const { data: queued } = await api.post(`/emails/${accountId}/sync`);
-      const job = await waitForJob(queued.job_id);
-      await refreshEmails(accountId, { silent: true });
-      const n = job.result?.new_count ?? 0;
-      const total = job.result?.count ?? 0;
-      toast.success(
-        job.result?.incremental
-          ? `Synced ${n} new email${n === 1 ? "" : "s"} (${total} in inbox)`
-          : `Synced ${total} emails from the last 3 days`
-      );
-    } catch (err) {
-      const detail = err.response?.data?.detail || err.message;
-      toast.error(
-        typeof detail === "string"
-          ? detail
-          : "Failed to sync emails from Gmail"
-      );
+      for (let i = 0; i < accounts.length; i++) {
+        const account = accounts[i];
+        const accountId = account.id;
+        setSyncProgress({
+          current: i + 1,
+          total: accounts.length,
+          email: account.email_address,
+        });
+        setAccountSyncing(accountId, true);
+        try {
+          const { data: queued } = await api.post(`/emails/${accountId}/sync`);
+          const job = await waitForJob(queued.job_id);
+          await refreshEmails(accountId, { silent: true });
+          synced += 1;
+          newEmails += job.result?.new_count ?? 0;
+        } catch (err) {
+          failed += 1;
+          const detail = err.response?.data?.detail || err.message;
+          toast.error(
+            typeof detail === "string"
+              ? `${account.email_address}: ${detail}`
+              : `Failed to sync ${account.email_address}`
+          );
+        } finally {
+          setAccountSyncing(accountId, false);
+        }
+      }
+
+      if (failed === 0) {
+        toast.success(
+          accounts.length === 1
+            ? `Synced ${newEmails} new email${newEmails === 1 ? "" : "s"}`
+            : `Synced all ${synced} accounts (${newEmails} new emails)`
+        );
+      } else if (synced > 0) {
+        toast.success(
+          `Synced ${synced}/${accounts.length} accounts (${failed} failed)`
+        );
+      }
     } finally {
-      setAccountSyncing(accountId, false);
+      setSyncProgress(null);
     }
-  }, [refreshEmails, setAccountSyncing]);
+  }, [refreshEmails, setAccountSyncing, setSyncProgress]);
 
   const recategorizeAll = useCallback(async () => {
     const account = useStore.getState().selectedAccount;
@@ -178,6 +201,7 @@ export function useDashboardData() {
     emailsLoading,
     emailsSyncing,
     emailsRecategorizing,
+    syncProgress,
     syncEmails,
     recategorizeAll,
   };
