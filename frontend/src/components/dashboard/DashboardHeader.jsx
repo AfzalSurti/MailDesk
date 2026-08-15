@@ -1,4 +1,5 @@
 import { Menu, MessageCircle, RefreshCw } from "lucide-react";
+import { formatSyncStatus } from "../../utils/syncStatus";
 
 export default function DashboardHeader({
   selectedAccount,
@@ -11,10 +12,11 @@ export default function DashboardHeader({
   onSync,
   hasAccounts,
 }) {
+  const liveStatus = formatSyncStatus(syncProgress);
   const syncLabel = emailsSyncing
-    ? syncProgress
-      ? `Syncing ${syncProgress.current}/${syncProgress.total}...`
-      : "Syncing..."
+    ? syncProgress?.total > 1
+      ? `Syncing ${syncProgress.current}/${syncProgress.total}…`
+      : liveStatus || "Syncing…"
     : "Sync all";
 
   return (
@@ -40,9 +42,11 @@ export default function DashboardHeader({
                 {selectedAccount.email_address}
               </p>
             )}
-            {emailsSyncing && syncProgress?.email && (
-              <p className="text-[11px] text-accent truncate mt-0.5">
-                Syncing {syncProgress.email}
+            {emailsSyncing && (liveStatus || syncProgress?.email) && (
+              <p className="text-[11px] text-accent truncate mt-0.5 tabular-nums">
+                {liveStatus
+                  ? `${liveStatus}${syncProgress?.email ? ` · ${syncProgress.email}` : ""}`
+                  : `Syncing ${syncProgress.email}`}
               </p>
             )}
           </div>

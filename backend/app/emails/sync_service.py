@@ -347,6 +347,7 @@ async def _categorize_account_emails(
     db: AsyncSession,
     account: GmailAccount,
     gmail_uids: set[str],
+    progress_cb=None,
 ) -> None:
     categories = await _load_categories(db, account)
     if not categories or not gmail_uids:
@@ -363,8 +364,11 @@ async def _categorize_account_emails(
         )
     )
     emails_to_classify = result.scalars().all()
+    total = len(emails_to_classify)
+    if progress_cb:
+        await progress_cb({"phase": "categorizing", "done": 0, "total": total})
 
-    for email in emails_to_classify:
+    for index, email in enumerate(emails_to_classify, start=1):
         classification = await classify_email(
             subject=email.subject,
             sender=email.from_address,
@@ -375,12 +379,17 @@ async def _categorize_account_emails(
         )
         await _save_category(db, account.id, email.gmail_uid, classification)
         await db.commit()
+        if progress_cb:
+            await progress_cb(
+                {"phase": "categorizing", "done": index, "total": total}
+            )
 
 
 async def sync_account_emails(
     db: AsyncSession,
     account: GmailAccount,
     days: int = 3,
+    progress_cb=None,
 ) -> tuple[list[EmailMessage], dict]:
     """Incremental sync when possible.
 
@@ -400,6 +409,11 @@ async def sync_account_emails(
 
     new_uids: set[str] = set()
     fetched_uids: set[str] = set()
+    fetch_total = 0
+
+    async def report(payload: dict) -> None:
+        if progress_cb:
+            await progress_cb(payload)
 
     for raw in iter_fetch_emails(
         account.email_address,
@@ -407,23 +421,48 @@ async def sync_account_emails(
         days=days,
         since=since,
     ):
+        if raw.get("_progress_only"):
+            fetch_total = int(raw.get("total") or fetch_total)
+            await report(
+                {
+                    "phase": "fetching",
+                    "done": int(raw.get("done") or 0),
+                    "total": fetch_total,
+                    "saved": len(fetched_uids),
+                }
+            )
+            continue
+
         uid = raw["uid"]
+        fetch_total = int(raw.get("_scan_total") or fetch_total)
         fetched_uids.add(uid)
         is_new = await _upsert_email(db, account.id, raw, now)
         await db.commit()
         if is_new:
             new_uids.add(uid)
+        await report(
+            {
+                "phase": "fetching",
+                "done": int(raw.get("_scan_done") or len(fetched_uids)),
+                "total": fetch_total or len(fetched_uids),
+                "saved": len(fetched_uids),
+            }
+        )
 
     # Always drop mail outside the rolling 3-day window
+    await report({"phase": "pruning", "done": 0, "total": 0})
     await _prune_emails_older_than(db, account.id, cutoff)
     await db.commit()
 
     # Reply detection for the same retention window
+    await report({"phase": "matching_replies", "done": 0, "total": 0})
     await _match_sent_replies(db, account, days=days)
 
     # Categorize only brand-new messages (not on refresh / not already categorized)
     if new_uids:
-        await _categorize_account_emails(db, account, new_uids)
+        await _categorize_account_emails(
+            db, account, new_uids, progress_cb=progress_cb
+        )
 
     account.last_synced_at = now
     await db.commit()
@@ -433,6 +472,7 @@ async def sync_account_emails(
     from app.emails.inbox_digest import refresh_inbox_digest
     from app.emails.rag import index_account_emails
 
+    await report({"phase": "indexing", "done": 0, "total": 0})
     await refresh_inbox_digest(db, account, emails)
     await index_account_emails(
         db,
@@ -448,10 +488,10 @@ async def sync_account_emails(
     }
 
 
-
 async def recategorize_all_emails(
     db: AsyncSession,
     account: GmailAccount,
+    progress_cb=None,
 ) -> list[EmailMessage]:
     categories = await _load_categories(db, account)
     if not categories:
@@ -466,8 +506,11 @@ async def recategorize_all_emails(
         )
     )
     emails = result.scalars().all()
+    total = len(emails)
+    if progress_cb:
+        await progress_cb({"phase": "categorizing", "done": 0, "total": total})
 
-    for email in emails:
+    for index, email in enumerate(emails, start=1):
         classification = await classify_email(
             subject=email.subject,
             sender=email.from_address,
@@ -479,6 +522,10 @@ async def recategorize_all_emails(
         )
         await _save_category(db, account.id, email.gmail_uid, classification)
         await db.commit()
+        if progress_cb:
+            await progress_cb(
+                {"phase": "categorizing", "done": index, "total": total}
+            )
 
     emails = await list_account_emails(db, account.id)
     from app.emails.inbox_digest import refresh_inbox_digest

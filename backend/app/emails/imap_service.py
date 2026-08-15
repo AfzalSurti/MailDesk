@@ -161,6 +161,9 @@ def iter_fetch_emails(
     - If ``since`` is set (incremental sync): IMAP search from that calendar day,
       then keep only messages newer than ``since`` (time-aware).
     - Otherwise: last ``days`` days (initial / full window sync).
+
+    Yields email dicts, plus occasional ``{"_progress_only": True, ...}`` events
+    so callers can report live fetch progress (including skipped UIDs).
     """
     app_password = decrypt_password(encrypted_password)
 
@@ -181,9 +184,11 @@ def iter_fetch_emails(
 
     selected_ids = all_ids[-limit:] if len(all_ids) > limit else all_ids
     selected_ids = list(reversed(selected_ids))
+    total = len(selected_ids)
+    yield {"_progress_only": True, "done": 0, "total": total, "phase": "fetching"}
 
     try:
-        for uid in selected_ids:
+        for index, uid in enumerate(selected_ids, start=1):
             try:
                 _, msg_data = mail.fetch(uid, "(RFC822)")
                 raw = msg_data[0][1]
@@ -204,6 +209,12 @@ def iter_fetch_emails(
                         if received is not None and received.tzinfo is not None:
                             received = received.replace(tzinfo=None)
                         if received is not None and received <= since_cutoff:
+                            yield {
+                                "_progress_only": True,
+                                "done": index,
+                                "total": total,
+                                "phase": "fetching",
+                            }
                             continue
                     except Exception:
                         pass
@@ -217,8 +228,16 @@ def iter_fetch_emails(
                     "body_preview": preview_source[:500],
                     "body": body_text,
                     "body_html": body_html,
+                    "_scan_done": index,
+                    "_scan_total": total,
                 }
             except Exception:
+                yield {
+                    "_progress_only": True,
+                    "done": index,
+                    "total": total,
+                    "phase": "fetching",
+                }
                 continue
     finally:
         mail.logout()
@@ -393,14 +412,16 @@ def fetch_emails(
     days: int = 3,
     limit: int = 200,
 ) -> List[Dict]:
-    return list(
-        iter_fetch_emails(
+    return [
+        item
+        for item in iter_fetch_emails(
             email_address,
             encrypted_password,
             days=days,
             limit=limit,
         )
-    )
+        if not item.get("_progress_only")
+    ]
 
 
 def delete_email(email_address: str, encrypted_password: str, uid: str) -> bool:

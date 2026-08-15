@@ -8,13 +8,16 @@ import useStore, {
   isAnyAccountSyncing,
 } from "../store/useStore";
 
-const JOB_POLL_MS = 1200;
+const JOB_POLL_MS = 800;
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
 
-async function waitForJob(jobId) {
+async function waitForJob(jobId, onProgress) {
   const started = Date.now();
   while (Date.now() - started < JOB_TIMEOUT_MS) {
     const { data } = await api.get(`/jobs/${jobId}`);
+    if (data.result && typeof onProgress === "function") {
+      onProgress(data.result);
+    }
     if (data.status === "completed") return data;
     if (data.status === "failed") {
       const err = new Error(data.error || "Job failed");
@@ -127,11 +130,24 @@ export function useDashboardData() {
           current: i + 1,
           total: accounts.length,
           email: account.email_address,
+          phase: "starting",
+          done: 0,
+          jobTotal: 0,
         });
         setAccountSyncing(accountId, true);
         try {
           const { data: queued } = await api.post(`/emails/${accountId}/sync`);
-          const job = await waitForJob(queued.job_id);
+          const job = await waitForJob(queued.job_id, (result) => {
+            setSyncProgress({
+              current: i + 1,
+              total: accounts.length,
+              email: account.email_address,
+              phase: result.phase || "fetching",
+              done: result.done ?? 0,
+              jobTotal: result.total ?? 0,
+              saved: result.saved,
+            });
+          });
           await refreshEmails(accountId, { silent: true });
           synced += 1;
           newEmails += job.result?.new_count ?? 0;
@@ -176,11 +192,30 @@ export function useDashboardData() {
     }
 
     setAccountRecategorizing(accountId, true);
+    setSyncProgress({
+      current: 1,
+      total: 1,
+      email: account.email_address,
+      phase: "categorizing",
+      done: 0,
+      jobTotal: 0,
+      mode: "recategorize",
+    });
     try {
       const { data: queued } = await api.post(
         `/emails/${accountId}/recategorize`
       );
-      const job = await waitForJob(queued.job_id);
+      const job = await waitForJob(queued.job_id, (result) => {
+        setSyncProgress({
+          current: 1,
+          total: 1,
+          email: account.email_address,
+          phase: result.phase || "categorizing",
+          done: result.done ?? 0,
+          jobTotal: result.total ?? 0,
+          mode: "recategorize",
+        });
+      });
       await refreshEmails(accountId, { silent: true });
       toast.success(`Re-categorized ${job.result?.count ?? 0} emails`);
     } catch (err) {
@@ -192,8 +227,9 @@ export function useDashboardData() {
       );
     } finally {
       setAccountRecategorizing(accountId, false);
+      setSyncProgress(null);
     }
-  }, [refreshEmails, setAccountRecategorizing]);
+  }, [refreshEmails, setAccountRecategorizing, setSyncProgress]);
 
   return {
     selectedAccount,

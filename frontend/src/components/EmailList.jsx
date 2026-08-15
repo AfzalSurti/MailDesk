@@ -5,6 +5,7 @@ import useStore, {
 } from "../store/useStore";
 import { stripHtml } from "../utils/stripHtml";
 import { formatEmailDate, formatSender } from "../utils/format";
+import { formatSyncStatus } from "../utils/syncStatus";
 import EmptyState from "./ui/EmptyState";
 import CategoryBadge from "./ui/CategoryBadge";
 
@@ -35,6 +36,10 @@ export default function EmailList({ onRefresh }) {
   const anySyncing = useStore((s) =>
     Object.values(s.syncingAccountIds || {}).some(Boolean)
   );
+  const syncProgress = useStore((s) => s.syncProgress);
+  const statusLabel = formatSyncStatus(syncProgress, {
+    recategorizing: emailsRecategorizing,
+  });
 
   const hiddenOnMobile = selectedEmailId ? "hidden md:flex" : "flex";
   const showInitialLoader = emailsLoading && emails.length === 0 && !emailsSyncing;
@@ -84,21 +89,19 @@ export default function EmailList({ onRefresh }) {
           <span className="text-muted font-normal ml-1.5">{emails.length}</span>
         </p>
         {(emailsSyncing || emailsRecategorizing || anySyncing) && (
-          <span className="flex items-center gap-1.5 text-[11px] text-accent font-medium">
-            <RefreshCw className="w-3 h-3 animate-spin" />
-            {emailsRecategorizing
-              ? "Re-categorizing"
-              : anySyncing
-                ? "Syncing all accounts"
-                : "Syncing"}
+          <span className="flex items-center gap-1.5 text-[11px] text-accent font-medium tabular-nums max-w-[60%] truncate">
+            <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
+            {statusLabel || (anySyncing ? "Syncing…" : "Syncing")}
           </span>
         )}
       </div>
 
       {emails.length === 0 && (emailsSyncing || anySyncing) ? (
-        <div className="flex-1 flex items-center justify-center text-muted text-sm gap-2">
-          <RefreshCw className="w-4 h-4 animate-spin" />
-          Fetching emails...
+        <div className="flex-1 flex items-center justify-center text-muted text-sm gap-2 px-4 text-center">
+          <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+          <span className="tabular-nums">
+            {statusLabel || "Fetching emails…"}
+          </span>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto divide-y divide-border/80">

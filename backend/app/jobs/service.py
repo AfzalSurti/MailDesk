@@ -70,6 +70,19 @@ async def get_user_job(
     return result.scalar_one_or_none()
 
 
+async def update_job_progress(job_id: uuid.UUID, progress: dict) -> None:
+    """Write live progress into result_json while the job is running."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(BackgroundJob).where(BackgroundJob.id == job_id)
+        )
+        job = result.scalar_one_or_none()
+        if not job or job.status not in ("queued", "running"):
+            return
+        job.result_json = json.dumps(progress)
+        await db.commit()
+
+
 async def execute_job(job_id: uuid.UUID) -> None:
     """Run in a fresh DB session (safe for FastAPI BackgroundTasks)."""
     async with AsyncSessionLocal() as db:
@@ -82,6 +95,14 @@ async def execute_job(job_id: uuid.UUID) -> None:
 
         job.status = "running"
         job.started_at = datetime.utcnow()
+        job.result_json = json.dumps(
+            {
+                "phase": "starting",
+                "done": 0,
+                "total": 0,
+                "account_id": str(job.account_id),
+            }
+        )
         await db.commit()
 
         try:
@@ -99,20 +120,45 @@ async def execute_job(job_id: uuid.UUID) -> None:
             if not account or account.user_id != job.user_id:
                 raise ValueError("Account not found for this job")
 
+            async def progress_cb(payload: dict) -> None:
+                await update_job_progress(
+                    job_id,
+                    {
+                        **payload,
+                        "account_id": str(account.id),
+                        "email_address": account.email_address,
+                    },
+                )
+
             if job.job_type == "sync":
-                emails, sync_meta = await sync_account_emails(db, account, days=3)
+                emails, sync_meta = await sync_account_emails(
+                    db,
+                    account,
+                    days=3,
+                    progress_cb=progress_cb,
+                )
                 result_payload = {
                     "count": sync_meta["count"],
                     "new_count": sync_meta["new_count"],
                     "fetched_count": sync_meta["fetched_count"],
                     "incremental": sync_meta["incremental"],
                     "account_id": str(account.id),
+                    "phase": "completed",
+                    "done": sync_meta["fetched_count"],
+                    "total": sync_meta["fetched_count"],
                 }
             elif job.job_type == "recategorize":
-                emails = await recategorize_all_emails(db, account)
+                emails = await recategorize_all_emails(
+                    db,
+                    account,
+                    progress_cb=progress_cb,
+                )
                 result_payload = {
                     "count": len(emails),
                     "account_id": str(account.id),
+                    "phase": "completed",
+                    "done": len(emails),
+                    "total": len(emails),
                 }
             else:
                 raise ValueError(f"Unknown job type: {job.job_type}")
