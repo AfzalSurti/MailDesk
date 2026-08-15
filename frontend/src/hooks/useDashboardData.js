@@ -8,15 +8,17 @@ import useStore, {
   isAnyAccountSyncing,
 } from "../store/useStore";
 
-const JOB_POLL_MS = 800;
+const JOB_POLL_MS = 700;
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
+const LIVE_REFRESH_MS = 1200;
+const LIVE_REFRESH_EVERY_SAVED = 2;
 
 async function waitForJob(jobId, onProgress) {
   const started = Date.now();
   while (Date.now() - started < JOB_TIMEOUT_MS) {
     const { data } = await api.get(`/jobs/${jobId}`);
     if (data.result && typeof onProgress === "function") {
-      onProgress(data.result);
+      await onProgress(data.result, data.status);
     }
     if (data.status === "completed") return data;
     if (data.status === "failed") {
@@ -126,6 +128,8 @@ export function useDashboardData() {
       for (let i = 0; i < accounts.length; i++) {
         const account = accounts[i];
         const accountId = account.id;
+        // Show this account's inbox filling as emails arrive
+        setSelectedAccount(account);
         setSyncProgress({
           current: i + 1,
           total: accounts.length,
@@ -133,11 +137,39 @@ export function useDashboardData() {
           phase: "starting",
           done: 0,
           jobTotal: 0,
+          saved: 0,
         });
         setAccountSyncing(accountId, true);
+
+        let lastRefreshSaved = -1;
+        let lastRefreshAt = 0;
+        let refreshInFlight = false;
+
+        const maybeLiveRefresh = async (result) => {
+          const phase = result?.phase;
+          const saved = Number(result?.saved) || 0;
+          const now = Date.now();
+          const shouldRefresh =
+            (phase === "fetching" &&
+              saved > lastRefreshSaved &&
+              (saved - lastRefreshSaved >= LIVE_REFRESH_EVERY_SAVED ||
+                now - lastRefreshAt >= LIVE_REFRESH_MS)) ||
+            (phase === "categorizing" && now - lastRefreshAt >= LIVE_REFRESH_MS);
+
+          if (!shouldRefresh || refreshInFlight) return;
+          refreshInFlight = true;
+          lastRefreshSaved = saved;
+          lastRefreshAt = now;
+          try {
+            await refreshEmails(accountId, { silent: true });
+          } finally {
+            refreshInFlight = false;
+          }
+        };
+
         try {
           const { data: queued } = await api.post(`/emails/${accountId}/sync`);
-          const job = await waitForJob(queued.job_id, (result) => {
+          const job = await waitForJob(queued.job_id, async (result) => {
             setSyncProgress({
               current: i + 1,
               total: accounts.length,
@@ -145,8 +177,9 @@ export function useDashboardData() {
               phase: result.phase || "fetching",
               done: result.done ?? 0,
               jobTotal: result.total ?? 0,
-              saved: result.saved,
+              saved: result.saved ?? 0,
             });
+            await maybeLiveRefresh(result);
           });
           await refreshEmails(accountId, { silent: true });
           synced += 1;
@@ -178,7 +211,12 @@ export function useDashboardData() {
     } finally {
       setSyncProgress(null);
     }
-  }, [refreshEmails, setAccountSyncing, setSyncProgress]);
+  }, [
+    refreshEmails,
+    setAccountSyncing,
+    setSelectedAccount,
+    setSyncProgress,
+  ]);
 
   const recategorizeAll = useCallback(async () => {
     const account = useStore.getState().selectedAccount;
@@ -201,11 +239,12 @@ export function useDashboardData() {
       jobTotal: 0,
       mode: "recategorize",
     });
+    let lastRefreshAt = 0;
     try {
       const { data: queued } = await api.post(
         `/emails/${accountId}/recategorize`
       );
-      const job = await waitForJob(queued.job_id, (result) => {
+      const job = await waitForJob(queued.job_id, async (result) => {
         setSyncProgress({
           current: 1,
           total: 1,
@@ -215,6 +254,11 @@ export function useDashboardData() {
           jobTotal: result.total ?? 0,
           mode: "recategorize",
         });
+        const now = Date.now();
+        if (now - lastRefreshAt >= LIVE_REFRESH_MS) {
+          lastRefreshAt = now;
+          await refreshEmails(accountId, { silent: true });
+        }
       });
       await refreshEmails(accountId, { silent: true });
       toast.success(`Re-categorized ${job.result?.count ?? 0} emails`);

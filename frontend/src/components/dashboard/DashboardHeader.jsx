@@ -42,11 +42,10 @@ export default function DashboardHeader({
                 {selectedAccount.email_address}
               </p>
             )}
-            {emailsSyncing && (liveStatus || syncProgress?.email) && (
+            {emailsSyncing && liveStatus && (
               <p className="text-[11px] text-accent truncate mt-0.5 tabular-nums">
-                {liveStatus
-                  ? `${liveStatus}${syncProgress?.email ? ` · ${syncProgress.email}` : ""}`
-                  : `Syncing ${syncProgress.email}`}
+                {liveStatus}
+                {syncProgress?.email ? ` · ${syncProgress.email}` : ""}
               </p>
             )}
           </div>

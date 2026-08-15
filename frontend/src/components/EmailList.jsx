@@ -67,7 +67,7 @@ export default function EmailList({ onRefresh }) {
     );
   }
 
-  if (emails.length === 0 && !emailsSyncing) {
+  if (emails.length === 0 && !emailsSyncing && !anySyncing) {
     return (
       <ListShell className={`${hiddenOnMobile} items-center justify-center`}>
         <EmptyState
@@ -89,9 +89,9 @@ export default function EmailList({ onRefresh }) {
           <span className="text-muted font-normal ml-1.5">{emails.length}</span>
         </p>
         {(emailsSyncing || emailsRecategorizing || anySyncing) && (
-          <span className="flex items-center gap-1.5 text-[11px] text-accent font-medium tabular-nums max-w-[60%] truncate">
+          <span className="flex items-center gap-1.5 text-[11px] text-accent font-medium tabular-nums max-w-[65%] truncate">
             <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
-            {statusLabel || (anySyncing ? "Syncing…" : "Syncing")}
+            {statusLabel || "Syncing…"}
           </span>
         )}
       </div>

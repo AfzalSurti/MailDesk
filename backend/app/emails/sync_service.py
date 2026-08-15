@@ -1,3 +1,5 @@
+import asyncio
+import concurrent.futures
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 import uuid
@@ -11,6 +13,14 @@ from app.categories.models import AccountCategoryAssignment, Category
 from app.emails.ai_service import ClassificationAPIError, classify_email, parse_category_uuid
 from app.emails.imap_service import fetch_sent_replies, iter_fetch_emails
 from app.emails.models import EmailMessage
+
+
+def _next_imap_item(generator):
+    """Advance a sync IMAP generator off the event loop thread."""
+    try:
+        return next(generator)
+    except StopIteration:
+        return None
 
 
 def parse_email_date(date_header: str) -> datetime | None:
@@ -222,10 +232,11 @@ async def _match_sent_replies(
 ) -> None:
     """Match Sent Mail replies to already-synced inbox messages (same day window only)."""
     try:
-        sent = fetch_sent_replies(
+        sent = await asyncio.to_thread(
+            fetch_sent_replies,
             account.email_address,
             account.app_password,
-            days=days,
+            days,
         )
     except Exception:
         return
@@ -415,39 +426,48 @@ async def sync_account_emails(
         if progress_cb:
             await progress_cb(payload)
 
-    for raw in iter_fetch_emails(
+    # Run blocking IMAP on one worker so the event loop can serve job polls
+    # and the UI can refresh the inbox while this account is still fetching.
+    imap_gen = iter_fetch_emails(
         account.email_address,
         account.app_password,
         days=days,
         since=since,
-    ):
-        if raw.get("_progress_only"):
-            fetch_total = int(raw.get("total") or fetch_total)
+    )
+    loop = asyncio.get_running_loop()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as imap_pool:
+        while True:
+            raw = await loop.run_in_executor(imap_pool, _next_imap_item, imap_gen)
+            if raw is None:
+                break
+
+            if raw.get("_progress_only"):
+                fetch_total = int(raw.get("total") or fetch_total)
+                await report(
+                    {
+                        "phase": "fetching",
+                        "done": int(raw.get("done") or 0),
+                        "total": fetch_total,
+                        "saved": len(fetched_uids),
+                    }
+                )
+                continue
+
+            uid = raw["uid"]
+            fetch_total = int(raw.get("_scan_total") or fetch_total)
+            fetched_uids.add(uid)
+            is_new = await _upsert_email(db, account.id, raw, now)
+            await db.commit()
+            if is_new:
+                new_uids.add(uid)
             await report(
                 {
                     "phase": "fetching",
-                    "done": int(raw.get("done") or 0),
-                    "total": fetch_total,
+                    "done": int(raw.get("_scan_done") or len(fetched_uids)),
+                    "total": fetch_total or len(fetched_uids),
                     "saved": len(fetched_uids),
                 }
             )
-            continue
-
-        uid = raw["uid"]
-        fetch_total = int(raw.get("_scan_total") or fetch_total)
-        fetched_uids.add(uid)
-        is_new = await _upsert_email(db, account.id, raw, now)
-        await db.commit()
-        if is_new:
-            new_uids.add(uid)
-        await report(
-            {
-                "phase": "fetching",
-                "done": int(raw.get("_scan_done") or len(fetched_uids)),
-                "total": fetch_total or len(fetched_uids),
-                "saved": len(fetched_uids),
-            }
-        )
 
     # Always drop mail outside the rolling 3-day window
     await report({"phase": "pruning", "done": 0, "total": 0})
