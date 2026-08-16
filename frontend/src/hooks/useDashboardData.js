@@ -8,17 +8,17 @@ import useStore, {
   isAnyAccountSyncing,
 } from "../store/useStore";
 
-const JOB_POLL_MS = 700;
+const JOB_POLL_MS = 600;
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
-const LIVE_REFRESH_MS = 1200;
-const LIVE_REFRESH_EVERY_SAVED = 2;
+const LIVE_REFRESH_MS = 800;
 
 async function waitForJob(jobId, onProgress) {
   const started = Date.now();
   while (Date.now() - started < JOB_TIMEOUT_MS) {
     const { data } = await api.get(`/jobs/${jobId}`);
     if (data.result && typeof onProgress === "function") {
-      await onProgress(data.result, data.status);
+      // Do not await heavy work here — keep polling responsive
+      onProgress(data.result, data.status);
     }
     if (data.status === "completed") return data;
     if (data.status === "failed") {
@@ -112,7 +112,173 @@ export function useDashboardData() {
     load();
   }, [setAccounts, setSelectedAccount, setEmailsForAccount, setEmailsLoading]);
 
-  const syncEmails = useCallback(async () => {
+  const runAccountSync = useCallback(
+    async (account, { current = 1, total = 1 } = {}) => {
+      const accountId = account.id;
+      setSelectedAccount(account);
+      setSyncProgress({
+        current,
+        total,
+        email: account.email_address,
+        phase: "starting",
+        done: 0,
+        jobTotal: 0,
+        saved: 0,
+      });
+      setAccountSyncing(accountId, true);
+
+      // Show this account's current inbox immediately (fixes blank 2nd/3rd accounts)
+      await refreshEmails(accountId, { silent: true });
+
+      let lastRefreshSaved = -1;
+      let lastRefreshDone = -1;
+      let lastRefreshAt = 0;
+      let refreshInFlight = false;
+      let pendingRefresh = false;
+
+      const doRefresh = () => {
+        if (refreshInFlight) {
+          pendingRefresh = true;
+          return;
+        }
+        refreshInFlight = true;
+        refreshEmails(accountId, { silent: true })
+          .catch(() => {})
+          .finally(() => {
+            refreshInFlight = false;
+            if (pendingRefresh) {
+              pendingRefresh = false;
+              doRefresh();
+            }
+          });
+      };
+
+      const maybeLiveRefresh = (result) => {
+        const phase = result?.phase;
+        const saved = Number(result?.saved) || 0;
+        const done = Number(result?.done) || 0;
+        const now = Date.now();
+
+        const progressMoved =
+          saved > lastRefreshSaved || done > lastRefreshDone;
+        const timeOk = now - lastRefreshAt >= LIVE_REFRESH_MS;
+
+        const shouldRefresh =
+          (phase === "fetching" && progressMoved && timeOk) ||
+          (phase === "fetching" && saved > lastRefreshSaved) ||
+          (phase === "categorizing" && timeOk) ||
+          phase === "categorize_skipped";
+
+        if (!shouldRefresh) return;
+
+        lastRefreshSaved = Math.max(lastRefreshSaved, saved);
+        lastRefreshDone = Math.max(lastRefreshDone, done);
+        lastRefreshAt = now;
+        doRefresh();
+      };
+
+      try {
+        const { data: queued } = await api.post(`/emails/${accountId}/sync`);
+        const job = await waitForJob(queued.job_id, (result) => {
+          setSyncProgress({
+            current,
+            total,
+            email: account.email_address,
+            phase: result.phase || "fetching",
+            done: result.done ?? 0,
+            jobTotal: result.total ?? 0,
+            saved: result.saved ?? 0,
+          });
+          maybeLiveRefresh(result);
+        });
+        await refreshEmails(accountId, { silent: true });
+        return {
+          ok: true,
+          newCount: job.result?.new_count ?? 0,
+          categorizeSkipped: job.result?.categorize_skipped ?? 0,
+          job,
+        };
+      } catch (err) {
+        const detail = err.response?.data?.detail || err.message;
+        return {
+          ok: false,
+          error:
+            typeof detail === "string"
+              ? detail
+              : `Failed to sync ${account.email_address}`,
+        };
+      } finally {
+        setAccountSyncing(accountId, false);
+      }
+    },
+    [
+      refreshEmails,
+      setAccountSyncing,
+      setSelectedAccount,
+      setSyncProgress,
+    ]
+  );
+
+  /** Sync only the currently selected Gmail account. */
+  const syncSelectedAccount = useCallback(async () => {
+    const account = useStore.getState().selectedAccount;
+    if (!account) {
+      toast.error("Select a Gmail account first");
+      return;
+    }
+    if (isAnyAccountSyncing(useStore.getState())) return;
+
+    try {
+      const result = await runAccountSync(account, { current: 1, total: 1 });
+      if (result.ok) {
+        toast.success(
+          `Synced ${result.newCount} new email${result.newCount === 1 ? "" : "s"}`
+        );
+        if (result.categorizeSkipped > 0) {
+          toast.error(
+            `Emails fetched, but OpenRouter limit stopped categorizing (${result.categorizeSkipped} left uncategorized)`
+          );
+        }
+      } else {
+        toast.error(`${account.email_address}: ${result.error}`);
+      }
+    } finally {
+      setSyncProgress(null);
+    }
+  }, [runAccountSync, setSyncProgress]);
+
+  /** Sync a specific account (e.g. from sidebar). */
+  const syncAccountById = useCallback(
+    async (accountId) => {
+      const account = (useStore.getState().accounts || []).find(
+        (a) => a.id === accountId
+      );
+      if (!account) return;
+      if (isAnyAccountSyncing(useStore.getState())) return;
+
+      try {
+        const result = await runAccountSync(account, { current: 1, total: 1 });
+        if (result.ok) {
+          toast.success(
+            `Synced ${result.newCount} new email${result.newCount === 1 ? "" : "s"}`
+          );
+          if (result.categorizeSkipped > 0) {
+            toast.error(
+              `Emails fetched, but OpenRouter limit stopped categorizing (${result.categorizeSkipped} left uncategorized)`
+            );
+          }
+        } else {
+          toast.error(`${account.email_address}: ${result.error}`);
+        }
+      } finally {
+        setSyncProgress(null);
+      }
+    },
+    [runAccountSync, setSyncProgress]
+  );
+
+  /** Sync every Gmail account, one after another. */
+  const syncAllAccounts = useCallback(async () => {
     const accounts = useStore.getState().accounts || [];
     if (!accounts.length) {
       toast.error("Add a Gmail account first");
@@ -127,77 +293,21 @@ export function useDashboardData() {
     try {
       for (let i = 0; i < accounts.length; i++) {
         const account = accounts[i];
-        const accountId = account.id;
-        // Show this account's inbox filling as emails arrive
-        setSelectedAccount(account);
-        setSyncProgress({
+        const result = await runAccountSync(account, {
           current: i + 1,
           total: accounts.length,
-          email: account.email_address,
-          phase: "starting",
-          done: 0,
-          jobTotal: 0,
-          saved: 0,
         });
-        setAccountSyncing(accountId, true);
-
-        let lastRefreshSaved = -1;
-        let lastRefreshAt = 0;
-        let refreshInFlight = false;
-
-        const maybeLiveRefresh = async (result) => {
-          const phase = result?.phase;
-          const saved = Number(result?.saved) || 0;
-          const now = Date.now();
-          const shouldRefresh =
-            (phase === "fetching" &&
-              saved > lastRefreshSaved &&
-              (saved - lastRefreshSaved >= LIVE_REFRESH_EVERY_SAVED ||
-                now - lastRefreshAt >= LIVE_REFRESH_MS)) ||
-            (phase === "categorizing" && now - lastRefreshAt >= LIVE_REFRESH_MS);
-
-          if (!shouldRefresh || refreshInFlight) return;
-          refreshInFlight = true;
-          lastRefreshSaved = saved;
-          lastRefreshAt = now;
-          try {
-            await refreshEmails(accountId, { silent: true });
-          } finally {
-            refreshInFlight = false;
-          }
-        };
-
-        try {
-          const { data: queued } = await api.post(`/emails/${accountId}/sync`);
-          const job = await waitForJob(queued.job_id, async (result) => {
-            setSyncProgress({
-              current: i + 1,
-              total: accounts.length,
-              email: account.email_address,
-              phase: result.phase || "fetching",
-              done: result.done ?? 0,
-              jobTotal: result.total ?? 0,
-              saved: result.saved ?? 0,
-            });
-            await maybeLiveRefresh(result);
-          });
-          await refreshEmails(accountId, { silent: true });
+        if (result.ok) {
           synced += 1;
-          newEmails += job.result?.new_count ?? 0;
-          if (job.result?.categorize_skipped > 0) {
+          newEmails += result.newCount;
+          if (result.categorizeSkipped > 0) {
             toast.error(
-              `${account.email_address}: emails fetched, but OpenRouter limit stopped categorizing (${job.result.categorize_skipped} left uncategorized)`
+              `${account.email_address}: emails fetched, but OpenRouter limit stopped categorizing (${result.categorizeSkipped} left uncategorized)`
             );
-          }        } catch (err) {
+          }
+        } else {
           failed += 1;
-          const detail = err.response?.data?.detail || err.message;
-          toast.error(
-            typeof detail === "string"
-              ? `${account.email_address}: ${detail}`
-              : `Failed to sync ${account.email_address}`
-          );
-        } finally {
-          setAccountSyncing(accountId, false);
+          toast.error(`${account.email_address}: ${result.error}`);
         }
       }
 
@@ -215,12 +325,7 @@ export function useDashboardData() {
     } finally {
       setSyncProgress(null);
     }
-  }, [
-    refreshEmails,
-    setAccountSyncing,
-    setSelectedAccount,
-    setSyncProgress,
-  ]);
+  }, [runAccountSync, setSyncProgress]);
 
   const recategorizeAll = useCallback(async () => {
     const account = useStore.getState().selectedAccount;
@@ -248,7 +353,7 @@ export function useDashboardData() {
       const { data: queued } = await api.post(
         `/emails/${accountId}/recategorize`
       );
-      const job = await waitForJob(queued.job_id, async (result) => {
+      const job = await waitForJob(queued.job_id, (result) => {
         setSyncProgress({
           current: 1,
           total: 1,
@@ -261,7 +366,7 @@ export function useDashboardData() {
         const now = Date.now();
         if (now - lastRefreshAt >= LIVE_REFRESH_MS) {
           lastRefreshAt = now;
-          await refreshEmails(accountId, { silent: true });
+          refreshEmails(accountId, { silent: true }).catch(() => {});
         }
       });
       await refreshEmails(accountId, { silent: true });
@@ -286,7 +391,11 @@ export function useDashboardData() {
     emailsSyncing,
     emailsRecategorizing,
     syncProgress,
-    syncEmails,
+    syncSelectedAccount,
+    syncAccountById,
+    syncAllAccounts,
+    /** @deprecated alias — prefer syncAllAccounts */
+    syncEmails: syncAllAccounts,
     recategorizeAll,
   };
 }

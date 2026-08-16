@@ -73,8 +73,8 @@ export default function EmailList({ onRefresh }) {
         <EmptyState
           icon={Mail}
           title="Inbox is empty"
-          description="Sync from Gmail to pull emails from the last 3 days."
-          actionLabel="Sync from Gmail"
+          description="Sync this Gmail account to pull emails from the last 3 days."
+          actionLabel="Sync this account"
           onAction={onRefresh}
         />
       </ListShell>

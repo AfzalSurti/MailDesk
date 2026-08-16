@@ -1,11 +1,72 @@
-import { LogOut, Settings, Home, Inbox, X, Plus } from "lucide-react";
-import useStore from "../store/useStore";
+import { LogOut, Settings, Home, Inbox, X, Plus, RefreshCw } from "lucide-react";
+import useStore, { isAccountSyncing, isAnyAccountSyncing } from "../store/useStore";
 import { Link, useNavigate } from "react-router-dom";
 import { getInitials } from "../utils/format";
 import EmptyState from "./ui/EmptyState";
 
-export default function Sidebar({ open, onClose, onSettingsOpen }) {
-  const { accounts, selectedAccount, setSelectedAccount, logout, user } = useStore();
+function AccountRow({ acc, isActive, anySyncing, onPick, onSyncAccount }) {
+  const isSyncing = useStore((s) => isAccountSyncing(s, acc.id));
+  const initials = getInitials(acc.display_name, acc.email_address);
+
+  return (
+    <div
+      className={`sidebar-account flex items-center gap-1 px-2 py-2 rounded-xl transition-all ${
+        isActive ? "bg-white/10 ring-1 ring-white/10" : "hover:bg-white/5"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => onPick(acc)}
+        className="flex-1 min-w-0 text-left flex items-center gap-3 px-1 py-1"
+      >
+        <div
+          className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${
+            isActive ? "bg-accent text-white" : "bg-white/10 text-white/70"
+          }`}
+        >
+          {initials}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p
+            className={`text-sm font-medium truncate ${
+              isActive ? "text-white" : "text-white/75"
+            }`}
+          >
+            {acc.display_name || acc.email_address.split("@")[0]}
+          </p>
+          <p className="text-[11px] text-white/40 font-mono truncate mt-0.5">
+            {acc.email_address}
+          </p>
+        </div>
+      </button>
+      {typeof onSyncAccount === "function" && (
+        <button
+          type="button"
+          title={`Sync ${acc.email_address}`}
+          disabled={anySyncing}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSyncAccount(acc.id);
+          }}
+          className="p-2 rounded-lg text-white/40 hover:text-white hover:bg-white/10 disabled:opacity-40 shrink-0"
+          aria-label={`Sync ${acc.email_address}`}
+        >
+          <RefreshCw
+            className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-accent" : ""}`}
+          />
+        </button>
+      )}
+    </div>
+  );
+}
+
+export default function Sidebar({ open, onClose, onSettingsOpen, onSyncAccount }) {
+  const accounts = useStore((s) => s.accounts);
+  const selectedAccount = useStore((s) => s.selectedAccount);
+  const setSelectedAccount = useStore((s) => s.setSelectedAccount);
+  const logout = useStore((s) => s.logout);
+  const user = useStore((s) => s.user);
+  const anySyncing = useStore((s) => isAnyAccountSyncing(s));
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -75,44 +136,16 @@ export default function Sidebar({ open, onClose, onSettingsOpen }) {
           </div>
         ) : (
           <div className="space-y-1 px-3">
-            {accounts.map((acc) => {
-              const isActive = selectedAccount?.id === acc.id;
-              const initials = getInitials(acc.display_name, acc.email_address);
-              return (
-                <button
-                  key={acc.id}
-                  type="button"
-                  onClick={() => pickAccount(acc)}
-                  className={`sidebar-account w-full text-left flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${
-                    isActive
-                      ? "bg-white/10 ring-1 ring-white/10"
-                      : "hover:bg-white/5"
-                  }`}
-                >
-                  <div
-                    className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${
-                      isActive
-                        ? "bg-accent text-white"
-                        : "bg-white/10 text-white/70"
-                    }`}
-                  >
-                    {initials}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className={`text-sm font-medium truncate ${
-                        isActive ? "text-white" : "text-white/75"
-                      }`}
-                    >
-                      {acc.display_name || acc.email_address.split("@")[0]}
-                    </p>
-                    <p className="text-[11px] text-white/40 font-mono truncate mt-0.5">
-                      {acc.email_address}
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
+            {accounts.map((acc) => (
+              <AccountRow
+                key={acc.id}
+                acc={acc}
+                isActive={selectedAccount?.id === acc.id}
+                anySyncing={anySyncing}
+                onPick={pickAccount}
+                onSyncAccount={onSyncAccount}
+              />
+            ))}
           </div>
         )}
 

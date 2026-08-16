@@ -16,7 +16,9 @@ export default function DashboardPage() {
     emailsSyncing,
     emailsRecategorizing,
     syncProgress,
-    syncEmails,
+    syncSelectedAccount,
+    syncAccountById,
+    syncAllAccounts,
     recategorizeAll,
   } = useDashboardData();
 
@@ -50,6 +52,7 @@ export default function DashboardPage() {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onSettingsOpen={() => setSettingsOpen(true)}
+        onSyncAccount={syncAccountById}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -62,11 +65,12 @@ export default function DashboardPage() {
           onOpenSidebar={() => setSidebarOpen(true)}
           onOpenCategories={() => setCategoryOpen(true)}
           onOpenChat={() => setChatOpen(true)}
-          onSync={syncEmails}
+          onSyncAccount={syncSelectedAccount}
+          onSyncAll={syncAllAccounts}
         />
 
         <div className="flex-1 flex overflow-hidden min-h-0">
-          <EmailList onRefresh={syncEmails} />
+          <EmailList onRefresh={syncSelectedAccount} />
           <EmailDetail />
         </div>
       </div>

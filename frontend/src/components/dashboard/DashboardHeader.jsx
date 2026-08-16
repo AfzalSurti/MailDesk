@@ -9,15 +9,15 @@ export default function DashboardHeader({
   onOpenSidebar,
   onOpenCategories,
   onOpenChat,
-  onSync,
+  onSyncAccount,
+  onSyncAll,
   hasAccounts,
 }) {
   const liveStatus = formatSyncStatus(syncProgress);
-  const syncLabel = emailsSyncing
-    ? syncProgress?.total > 1
-      ? `Syncing ${syncProgress.current}/${syncProgress.total}…`
-      : liveStatus || "Syncing…"
-    : "Sync all";
+  const syncingOne =
+    emailsSyncing && syncProgress && Number(syncProgress.total) <= 1;
+  const syncingAll =
+    emailsSyncing && syncProgress && Number(syncProgress.total) > 1;
 
   return (
     <header className="bg-card border-b border-border px-4 md:px-5 py-3 shrink-0">
@@ -69,15 +69,32 @@ export default function DashboardHeader({
           >
             Categories
           </button>
+          {selectedAccount && (
+            <button
+              type="button"
+              onClick={onSyncAccount}
+              disabled={emailsSyncing}
+              title="Sync this account only"
+              className="btn-secondary inline-flex items-center gap-1.5 text-xs px-3 py-1.5"
+            >
+              {(syncingOne || (emailsSyncing && !syncingAll)) && (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              )}
+              {syncingOne ? liveStatus || "Syncing…" : "Sync"}
+            </button>
+          )}
           {hasAccounts && (
             <button
               type="button"
-              onClick={onSync}
+              onClick={onSyncAll}
               disabled={emailsSyncing}
+              title="Sync every Gmail account"
               className="btn-primary inline-flex items-center gap-1.5 text-xs px-3 py-1.5"
             >
-              {emailsSyncing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-              {syncLabel}
+              {syncingAll && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+              {syncingAll
+                ? `Syncing ${syncProgress.current}/${syncProgress.total}…`
+                : "Sync all"}
             </button>
           )}
         </div>
@@ -119,6 +136,32 @@ export default function DashboardHeader({
           Categories
         </button>
       </div>
+      {hasAccounts && (
+        <div className="flex gap-2 mt-2 sm:hidden">
+          {selectedAccount && (
+            <button
+              type="button"
+              onClick={onSyncAccount}
+              disabled={emailsSyncing}
+              className="btn-secondary flex-1 text-xs py-1.5 inline-flex items-center justify-center gap-1.5"
+            >
+              {(syncingOne || (emailsSyncing && !syncingAll)) && (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              )}
+              Sync
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onSyncAll}
+            disabled={emailsSyncing}
+            className="btn-primary flex-1 text-xs py-1.5 inline-flex items-center justify-center gap-1.5"
+          >
+            {syncingAll && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+            Sync all
+          </button>
+        </div>
+      )}
     </header>
   );
 }
