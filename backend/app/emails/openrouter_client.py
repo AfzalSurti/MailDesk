@@ -95,7 +95,8 @@ class OpenRouterClient:
         max_tokens: int = 800,
         temperature: float = 0.2,
         timeout: float = 60.0,
-    ) -> str:
+    ) -> tuple[str, dict]:
+        """Return ``(content, usage)`` where usage has prompt/completion/total tokens."""
         keys = self.keys
         if not keys:
             raise OpenRouterError(
@@ -161,7 +162,21 @@ class OpenRouterClient:
 
                     # Success — advance rotation pointer past this key next time
                     self._index = (self._index + attempt + 1) % len(keys)
-                    return data["choices"][0]["message"]["content"].strip()
+                    content = data["choices"][0]["message"]["content"].strip()
+                    usage_raw = data.get("usage") or {}
+                    prompt_tokens = usage_raw.get("prompt_tokens")
+                    completion_tokens = usage_raw.get("completion_tokens")
+                    total_tokens = usage_raw.get("total_tokens")
+                    if total_tokens is None and (
+                        prompt_tokens is not None or completion_tokens is not None
+                    ):
+                        total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+                    usage = {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": total_tokens,
+                    }
+                    return content, usage
 
             except OpenRouterError:
                 raise

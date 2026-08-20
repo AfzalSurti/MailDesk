@@ -418,7 +418,13 @@ async def _categorize_account_emails(
             except ValueError as exc:
                 raise ClassificationAPIError(str(exc), status_code=429) from exc
 
-        async def log_api(batch_n: int) -> None:
+        async def log_api(batch_n: int, usage: dict | None = None) -> None:
+            usage = usage or {}
+            emails = max(batch_n, 1)
+            total = usage.get("total_tokens")
+            per_email = (
+                round(total / emails, 1) if isinstance(total, (int, float)) else None
+            )
             await log_ai_usage(
                 db,
                 user_id=account.user_id,
@@ -426,7 +432,10 @@ async def _categorize_account_emails(
                 action="categorize",
                 model=settings.openrouter_model_name,
                 cached=False,
-                meta=f"emails={batch_n}",
+                prompt_tokens=usage.get("prompt_tokens"),
+                completion_tokens=usage.get("completion_tokens"),
+                total_tokens=usage.get("total_tokens"),
+                meta=f"emails={batch_n};approx_tokens_per_email={per_email}",
             )
 
         try:

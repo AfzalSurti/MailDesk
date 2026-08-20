@@ -193,7 +193,7 @@ async def _classify_via_api_single(
     sender: str,
     body_preview: str,
     categories: List[Dict],
-) -> dict:
+) -> tuple[dict, dict]:
     categories_json = _categories_payload(categories)
     user_prompt = (
         f"Categories:\n{categories_json}\n\n"
@@ -203,7 +203,7 @@ async def _classify_via_api_single(
         '{"category_id":"<uuid from list>","category_name":"<exact name from list>",'
         '"priority":"high|medium|low","confidence_score":0.85}'
     )
-    raw = await openrouter.chat_completions(
+    raw, usage = await openrouter.chat_completions(
         [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
@@ -213,13 +213,13 @@ async def _classify_via_api_single(
         timeout=45.0,
     )
     parsed = _parse_json_content(raw)
-    return _finalize_ai_result(parsed, categories)
+    return _finalize_ai_result(parsed, categories), usage
 
 
 async def _classify_via_api_batch(
     items: List[Dict],
     categories: List[Dict],
-) -> Dict[str, dict]:
+) -> tuple[Dict[str, dict], dict]:
     """Classify several emails in one request. Same rules / normalize as single."""
     categories_json = _categories_payload(categories)
     emails_block = []
@@ -243,7 +243,7 @@ async def _classify_via_api_batch(
         '"confidence_score":0.85}]}'
     )
 
-    raw = await openrouter.chat_completions(
+    raw, usage = await openrouter.chat_completions(
         [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
@@ -267,7 +267,7 @@ async def _classify_via_api_batch(
         if not uid:
             continue
         out[uid] = _finalize_ai_result(row, categories)
-    return out
+    return out, usage
 
 
 async def classify_email(
@@ -300,7 +300,7 @@ async def classify_email(
         return rule_result
 
     try:
-        result = await _classify_via_api_single(
+        result, _usage = await _classify_via_api_single(
             subject, sender, body_preview, categories
         )
         _cache[cache_key] = result
@@ -325,7 +325,7 @@ async def classify_emails_batch(
 
     Each item: ``{uid, subject, sender, body_preview}``.
     Returns ``{uid: classification}``. Same quality path as ``classify_email``.
-    ``on_api_batch`` runs before each OpenRouter request; ``after_api_batch(n)`` after success.
+    ``on_api_batch`` runs before each OpenRouter request; ``after_api_batch(n, usage)`` after success.
     """
     results: Dict[str, dict] = {}
     if not items:
@@ -366,9 +366,9 @@ async def classify_emails_batch(
         if on_api_batch:
             await on_api_batch()
         try:
-            batch_out = await _classify_via_api_batch(chunk, categories)
+            batch_out, usage = await _classify_via_api_batch(chunk, categories)
             if after_api_batch:
-                await after_api_batch(len(chunk))
+                await after_api_batch(len(chunk), usage)
         except OpenRouterError as exc:
             raise ClassificationAPIError(
                 str(exc), status_code=exc.status_code
@@ -381,14 +381,15 @@ async def classify_emails_batch(
                 if on_api_batch:
                     await on_api_batch()
                 try:
-                    batch_out[uid] = await _classify_via_api_single(
+                    result, usage = await _classify_via_api_single(
                         item.get("subject") or "",
                         item.get("sender") or "",
                         item.get("body_preview") or "",
                         categories,
                     )
+                    batch_out[uid] = result
                     if after_api_batch:
-                        await after_api_batch(1)
+                        await after_api_batch(1, usage)
                 except OpenRouterError as exc:
                     raise ClassificationAPIError(
                         str(exc), status_code=exc.status_code
@@ -407,14 +408,14 @@ async def classify_emails_batch(
                 if on_api_batch:
                     await on_api_batch()
                 try:
-                    result = await _classify_via_api_single(
+                    result, usage = await _classify_via_api_single(
                         item.get("subject") or "",
                         item.get("sender") or "",
                         item.get("body_preview") or "",
                         categories,
                     )
                     if after_api_batch:
-                        await after_api_batch(1)
+                        await after_api_batch(1, usage)
                 except OpenRouterError as exc:
                     raise ClassificationAPIError(
                         str(exc), status_code=exc.status_code
