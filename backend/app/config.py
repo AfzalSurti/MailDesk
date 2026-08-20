@@ -4,11 +4,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 def parse_frontend_origins(value: str) -> list[str]:
     """Comma-separated origins; trailing slashes stripped."""
-    return [
+    origins = [
         origin.strip().rstrip("/")
         for origin in value.split(",")
         if origin.strip()
     ]
+    # Always allow the production Vercel app even if FRONTEND_URL is mis-set on Render
+    for extra in (
+        "https://mail-desk-one.vercel.app",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ):
+        if extra not in origins:
+            origins.append(extra)
+    return origins
 
 
 def parse_csv_keys(value: str | None) -> list[str]:

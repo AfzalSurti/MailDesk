@@ -33,13 +33,31 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     if "exceeded the data transfer quota" in lower or "quota" in lower:
         detail = "Database quota exceeded on Neon. Upgrade the Neon plan or wait for quota reset."
         status_code = 503
+    elif "undefinedcolumn" in lower.replace(" ", "") or "does not exist" in lower:
+        detail = (
+            "Database schema is missing a column/table. "
+            "Run pending Neon migrations (e.g. last_synced_at / ai_usage_logs)."
+        )
+        status_code = 500
     elif "connection" in lower or "ssl" in lower or "timeout" in lower:
         detail = "Database temporarily unavailable. Please try again."
         status_code = 503
     else:
         detail = "Internal server error"
         status_code = 500
-    return JSONResponse(status_code=status_code, content={"detail": detail})
+
+    headers = {}
+    origin = request.headers.get("origin")
+    if origin and origin.rstrip("/") in settings.frontend_origins:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Vary"] = "Origin"
+
+    return JSONResponse(
+        status_code=status_code,
+        content={"detail": detail},
+        headers=headers,
+    )
 
 
 @app.get("/health")
