@@ -182,8 +182,9 @@ def iter_fetch_emails(
         since_date = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
         since_cutoff = None
 
-    # Use UID SEARCH so stored ids survive inbox renumbering
-    _, message_ids = mail.uid("search", None, f"(SINCE {since_date})")
+    # Use UID SEARCH so stored ids survive inbox renumbering.
+    # Do NOT pass charset=None — that becomes literal "None" and Gmail rejects it.
+    _, message_ids = mail.uid("SEARCH", f"(SINCE {since_date})")
     all_ids = message_ids[0].split() if message_ids[0] else []
 
     selected_ids = all_ids[-limit:] if len(all_ids) > limit else all_ids
@@ -194,7 +195,7 @@ def iter_fetch_emails(
     try:
         for index, uid in enumerate(selected_ids, start=1):
             try:
-                _, msg_data = mail.uid("fetch", uid, "(RFC822)")
+                _, msg_data = mail.uid("FETCH", uid, "(RFC822)")
                 raw = _raw_from_fetch(msg_data)
                 if raw is None:
                     yield {
@@ -284,7 +285,7 @@ def _fetch_message_bytes(
     uid = str(gmail_uid).strip()
 
     # 1) Permanent IMAP UID (preferred — matches new sync)
-    _, msg_data = mail.uid("fetch", uid, "(RFC822)")
+    _, msg_data = mail.uid("FETCH", uid, "(RFC822)")
     raw = _raw_from_fetch(msg_data)
     if raw is not None:
         return raw
@@ -300,11 +301,11 @@ def _fetch_message_bytes(
     if mid:
         # Gmail HEADER search — try with and without angle brackets
         for candidate in (mid, f"<{mid}>"):
-            _, found = mail.uid("search", None, "HEADER", "Message-ID", candidate)
+            _, found = mail.uid("SEARCH", "HEADER", "Message-ID", candidate)
             ids = found[0].split() if found and found[0] else []
             if not ids:
                 continue
-            _, msg_data = mail.uid("fetch", ids[-1], "(RFC822)")
+            _, msg_data = mail.uid("FETCH", ids[-1], "(RFC822)")
             raw = _raw_from_fetch(msg_data)
             if raw is not None:
                 return raw
