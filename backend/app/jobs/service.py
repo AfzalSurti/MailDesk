@@ -180,6 +180,10 @@ async def execute_job(job_id: uuid.UUID) -> None:
             job.result_json = json.dumps(result_payload)
             await db.commit()
         except Exception as exc:
+            import logging
+            import traceback
+
+            logging.getLogger(__name__).exception("Background job %s failed", job_id)
             job_result = await db.execute(
                 select(BackgroundJob).where(BackgroundJob.id == job_id)
             )
@@ -187,5 +191,17 @@ async def execute_job(job_id: uuid.UUID) -> None:
             if job:
                 job.status = "failed"
                 job.finished_at = datetime.utcnow()
-                job.error = str(exc)[:2000]
+                # Never store empty error — InvalidToken and similar have blank str()
+                message = str(exc).strip() or f"{type(exc).__name__}: {exc!r}"
+                job.error = message[:2000]
+                job.result_json = json.dumps(
+                    {
+                        "phase": "failed",
+                        "done": 0,
+                        "total": 0,
+                        "account_id": str(job.account_id),
+                        "error": message[:500],
+                        "trace": traceback.format_exc()[-1500:],
+                    }
+                )
                 await db.commit()
