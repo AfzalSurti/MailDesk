@@ -9,8 +9,9 @@ def parse_frontend_origins(value: str) -> list[str]:
         for origin in value.split(",")
         if origin.strip()
     ]
-    # Always allow the production Vercel app even if FRONTEND_URL is mis-set on Render
+    # Always allow known production / local frontends even if FRONTEND_URL is mis-set
     for extra in (
+        "https://maildesk.geoapp.in",
         "https://mail-desk-one.vercel.app",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
