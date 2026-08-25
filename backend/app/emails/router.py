@@ -2,6 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import asyncio
 import uuid
 
 from app.accounts.deps import get_user_gmail_account
@@ -241,17 +242,31 @@ async def list_attachments_endpoint(
 ):
     """List attachments from Gmail IMAP on demand — not stored in Neon."""
     account = await _get_account_or_404(db, user, account_id)
+    stored = await get_account_email(db, account_id, gmail_uid)
+    message_id = stored.message_id if stored else None
     try:
-        items = list_email_attachments(
+        items = await asyncio.to_thread(
+            list_email_attachments,
             account.email_address,
             account.app_password,
             gmail_uid,
+            message_id,
         )
         return [AttachmentMeta(**item) for item in items]
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
+        err = str(exc)
+        lower = err.lower()
+        if "authentication" in lower or "invalid credentials" in lower or "login" in lower:
+            detail = "Gmail login failed for attachments. Re-check the account app password."
+        elif "timed out" in lower or "timeout" in lower:
+            detail = "Gmail IMAP timed out while loading attachments. Try again."
+        else:
+            detail = f"Could not list attachments: {err}"
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Could not list attachments: {exc}",
+            detail=detail,
         ) from exc
 
 
@@ -268,19 +283,29 @@ async def download_attachment_endpoint(
     from urllib.parse import quote
 
     account = await _get_account_or_404(db, user, account_id)
+    stored = await get_account_email(db, account_id, gmail_uid)
+    message_id = stored.message_id if stored else None
     try:
-        item = fetch_email_attachment(
+        item = await asyncio.to_thread(
+            fetch_email_attachment,
             account.email_address,
             account.app_password,
             gmail_uid,
             part_index,
+            message_id,
         )
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Attachment not found") from exc
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
+        err = str(exc)
+        lower = err.lower()
+        if "authentication" in lower or "invalid credentials" in lower or "login" in lower:
+            detail = "Gmail login failed for attachments. Re-check the account app password."
+        else:
+            detail = f"Could not download attachment: {err}"
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Could not download attachment: {exc}",
+            detail=detail,
         ) from exc
 
     filename = item["filename"] or "attachment"

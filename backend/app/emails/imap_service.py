@@ -162,6 +162,9 @@ def iter_fetch_emails(
       then keep only messages newer than ``since`` (time-aware).
     - Otherwise: last ``days`` days (initial / full window sync).
 
+    Stores permanent IMAP **UIDs** (not sequence numbers) so later attachment
+    fetches stay valid after inbox changes.
+
     Yields email dicts, plus occasional ``{"_progress_only": True, ...}`` events
     so callers can report live fetch progress (including skipped UIDs).
     """
@@ -179,7 +182,8 @@ def iter_fetch_emails(
         since_date = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
         since_cutoff = None
 
-    _, message_ids = mail.search(None, f"(SINCE {since_date})")
+    # Use UID SEARCH so stored ids survive inbox renumbering
+    _, message_ids = mail.uid("search", None, f"(SINCE {since_date})")
     all_ids = message_ids[0].split() if message_ids[0] else []
 
     selected_ids = all_ids[-limit:] if len(all_ids) > limit else all_ids
@@ -190,8 +194,16 @@ def iter_fetch_emails(
     try:
         for index, uid in enumerate(selected_ids, start=1):
             try:
-                _, msg_data = mail.fetch(uid, "(RFC822)")
-                raw = msg_data[0][1]
+                _, msg_data = mail.uid("fetch", uid, "(RFC822)")
+                raw = _raw_from_fetch(msg_data)
+                if raw is None:
+                    yield {
+                        "_progress_only": True,
+                        "done": index,
+                        "total": total,
+                        "phase": "fetching",
+                    }
+                    continue
                 msg = email.message_from_bytes(raw)
 
                 subject = decode_mime_header(msg.get("Subject", "(No Subject)"))
@@ -243,6 +255,65 @@ def iter_fetch_emails(
         mail.logout()
 
 
+def _raw_from_fetch(msg_data) -> bytes | None:
+    """Extract RFC822 bytes from imaplib fetch / uid fetch response."""
+    if not msg_data:
+        return None
+    for item in msg_data:
+        if isinstance(item, tuple) and len(item) >= 2 and isinstance(item[1], (bytes, bytearray)):
+            return bytes(item[1])
+    return None
+
+
+def _imap_login(email_address: str, encrypted_password: str) -> imaplib.IMAP4_SSL:
+    app_password = decrypt_password(encrypted_password)
+    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+    mail.login(email_address, app_password)
+    status, _ = mail.select("INBOX")
+    if status != "OK":
+        raise RuntimeError("Could not open Gmail INBOX")
+    return mail
+
+
+def _fetch_message_bytes(
+    mail: imaplib.IMAP4_SSL,
+    gmail_uid: str,
+    message_id: str | None = None,
+) -> bytes:
+    """Fetch one message by IMAP UID, sequence number, or Message-ID header."""
+    uid = str(gmail_uid).strip()
+
+    # 1) Permanent IMAP UID (preferred — matches new sync)
+    _, msg_data = mail.uid("fetch", uid, "(RFC822)")
+    raw = _raw_from_fetch(msg_data)
+    if raw is not None:
+        return raw
+
+    # 2) Legacy sequence number (older sync stored these as gmail_uid)
+    _, msg_data = mail.fetch(uid, "(RFC822)")
+    raw = _raw_from_fetch(msg_data)
+    if raw is not None:
+        return raw
+
+    # 3) Resolve via Message-ID when UID/seq drifted after inbox changes
+    mid = (message_id or "").strip()
+    if mid:
+        # Gmail HEADER search — try with and without angle brackets
+        for candidate in (mid, f"<{mid}>"):
+            _, found = mail.uid("search", None, "HEADER", "Message-ID", candidate)
+            ids = found[0].split() if found and found[0] else []
+            if not ids:
+                continue
+            _, msg_data = mail.uid("fetch", ids[-1], "(RFC822)")
+            raw = _raw_from_fetch(msg_data)
+            if raw is not None:
+                return raw
+
+    raise FileNotFoundError(
+        f"Message {uid} not found in Gmail INBOX (re-sync this account)"
+    )
+
+
 def _attachment_filename(part) -> str:
     filename = part.get_filename()
     if filename:
@@ -252,37 +323,36 @@ def _attachment_filename(part) -> str:
     return f"attachment.{ext}"
 
 
+def _iter_attachment_parts(msg):
+    for part in msg.walk():
+        content_type = part.get_content_type() or ""
+        disposition = str(part.get("Content-Disposition", "") or "").lower()
+        filename = part.get_filename()
+        if part.get_content_maintype() == "multipart":
+            continue
+        is_attachment = "attachment" in disposition or bool(filename)
+        if not is_attachment:
+            if content_type in ("text/plain", "text/html") and "attachment" not in disposition:
+                continue
+            if not filename:
+                continue
+        yield part, content_type
+
+
 def list_email_attachments(
     email_address: str,
     encrypted_password: str,
     gmail_uid: str,
+    message_id: str | None = None,
 ) -> List[Dict]:
     """List attachments for one message via IMAP — nothing stored in DB."""
-    app_password = decrypt_password(encrypted_password)
-    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
-    mail.login(email_address, app_password)
-    mail.select("INBOX")
-
+    mail = _imap_login(email_address, encrypted_password)
     attachments: list[dict] = []
     try:
-        _, msg_data = mail.fetch(gmail_uid, "(RFC822)")
-        raw = msg_data[0][1]
+        raw = _fetch_message_bytes(mail, gmail_uid, message_id=message_id)
         msg = email.message_from_bytes(raw)
         part_index = 0
-        for part in msg.walk():
-            content_type = part.get_content_type() or ""
-            disposition = str(part.get("Content-Disposition", "") or "").lower()
-            filename = part.get_filename()
-            is_multipart = part.get_content_maintype() == "multipart"
-            if is_multipart:
-                continue
-            is_attachment = "attachment" in disposition or bool(filename)
-            if not is_attachment:
-                # skip normal body parts
-                if content_type in ("text/plain", "text/html") and "attachment" not in disposition:
-                    continue
-                if not filename:
-                    continue
+        for part, content_type in _iter_attachment_parts(msg):
             payload = part.get_payload(decode=True)
             size = len(payload) if payload else 0
             attachments.append(
@@ -295,7 +365,10 @@ def list_email_attachments(
             )
             part_index += 1
     finally:
-        mail.logout()
+        try:
+            mail.logout()
+        except Exception:
+            pass
 
     return attachments
 
@@ -305,30 +378,15 @@ def fetch_email_attachment(
     encrypted_password: str,
     gmail_uid: str,
     part_index: int,
+    message_id: str | None = None,
 ) -> Dict:
     """Download one attachment by part index — streamed to client, not stored."""
-    app_password = decrypt_password(encrypted_password)
-    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
-    mail.login(email_address, app_password)
-    mail.select("INBOX")
-
+    mail = _imap_login(email_address, encrypted_password)
     try:
-        _, msg_data = mail.fetch(gmail_uid, "(RFC822)")
-        raw = msg_data[0][1]
+        raw = _fetch_message_bytes(mail, gmail_uid, message_id=message_id)
         msg = email.message_from_bytes(raw)
         current = 0
-        for part in msg.walk():
-            content_type = part.get_content_type() or ""
-            disposition = str(part.get("Content-Disposition", "") or "").lower()
-            filename = part.get_filename()
-            if part.get_content_maintype() == "multipart":
-                continue
-            is_attachment = "attachment" in disposition or bool(filename)
-            if not is_attachment:
-                if content_type in ("text/plain", "text/html") and "attachment" not in disposition:
-                    continue
-                if not filename:
-                    continue
+        for part, content_type in _iter_attachment_parts(msg):
             if current == part_index:
                 payload = part.get_payload(decode=True) or b""
                 return {
@@ -338,7 +396,10 @@ def fetch_email_attachment(
                 }
             current += 1
     finally:
-        mail.logout()
+        try:
+            mail.logout()
+        except Exception:
+            pass
 
     raise FileNotFoundError("Attachment not found")
 
