@@ -4,7 +4,7 @@ import sys
 
 import httpx
 
-BASE = "http://127.0.0.1:8000"
+BASE = "http://127.0.0.1:8001"
 ADMIN_USER = "admin@company.com"
 ADMIN_PASS = "admin123"
 

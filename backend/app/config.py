@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     )
     EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
     FRONTEND_URL: str
-    BACKEND_URL: str = "http://localhost:8000"
+    BACKEND_URL: str = "http://localhost:8001"
     GOOGLE_CLIENT_ID: str = Field(
         default="",
         validation_alias=AliasChoices("GOOGLE_CLIENT_ID", "CLIENT_ID"),
