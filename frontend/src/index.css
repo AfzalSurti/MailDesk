@@ -81,3 +81,77 @@ body {
     @apply font-semibold text-ink mt-4 mb-2;
   }
 }
+
+/* Print / "Download PDF" of a single email.
+   handleDownloadPdf() tags #email-print-root's ancestors with .print-ancestor
+   so the app's fixed-height flex layout doesn't clip the email to one page. */
+@media print {
+  .no-print,
+  .no-print * {
+    display: none !important;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .print-ancestor {
+    position: static !important;
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    flex: none !important;
+    border: 0 !important;
+  }
+
+  #email-print-root {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+  }
+
+  #email-print-root .email-scroll {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .email-print-header {
+    display: block !important;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #ccc;
+    font-size: 12px;
+    color: #333;
+  }
+
+  .email-print-header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    color: #000;
+  }
+
+  .email-print-header p {
+    margin: 2px 0;
+  }
+
+  .email-body-content img {
+    max-width: 100% !important;
+    break-inside: avoid;
+  }
+
+  .email-body-content table,
+  .email-body-content tr,
+  .email-body-content td {
+    break-inside: avoid;
+  }
+}

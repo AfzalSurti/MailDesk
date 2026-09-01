@@ -105,7 +105,7 @@ export default function Sidebar({ open, onClose, onSettingsOpen, onSyncAccount }
 
   return (
     <aside
-      className={`fixed md:static inset-y-0 left-0 z-50 w-72 bg-sidebar flex flex-col shrink-0 transform transition-transform duration-200 ease-out ${
+      className={`no-print fixed md:static inset-y-0 left-0 z-50 w-72 bg-sidebar flex flex-col shrink-0 transform transition-transform duration-200 ease-out ${
         open ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       }`}
     >

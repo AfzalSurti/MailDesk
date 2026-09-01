@@ -78,7 +78,7 @@ export default function EmailChatbot({ account, open, onOpen, onClose }) {
   };
 
   return (
-    <div className="fixed bottom-4 right-4 z-[60] flex flex-col items-end gap-3 pointer-events-none">
+    <div className="no-print fixed bottom-4 right-4 z-[60] flex flex-col items-end gap-3 pointer-events-none">
       {open && (
         <div
           className="pointer-events-auto w-[min(100vw-2rem,380px)] h-[min(70vh,560px)] bg-card border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden"

@@ -20,7 +20,7 @@ export default function DashboardHeader({
     emailsSyncing && syncProgress && Number(syncProgress.total) > 1;
 
   return (
-    <header className="bg-card border-b border-border px-4 md:px-5 py-3 shrink-0">
+    <header className="no-print bg-card border-b border-border px-4 md:px-5 py-3 shrink-0">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2 min-w-0">
           <button

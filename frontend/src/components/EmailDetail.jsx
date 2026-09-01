@@ -1,8 +1,9 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   ArrowLeft,
   CheckCircle2,
   Download,
+  FileDown,
   Mail,
   Paperclip,
   RefreshCw,
@@ -38,6 +39,7 @@ export default function EmailDetail() {
   const [attachments, setAttachments] = useState([]);
   const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [downloadingPart, setDownloadingPart] = useState(null);
+  const printRootRef = useRef(null);
 
   const selectedEmail = useMemo(
     () => selectEmailById(emails, selectedEmailId),
@@ -92,6 +94,45 @@ export default function EmailDetail() {
     } finally {
       setDownloadingPart(null);
     }
+  };
+
+  const downloadPdf = () => {
+    const root = printRootRef.current;
+    if (!root) return;
+
+    // The app is a fixed-height flex layout with overflow:hidden panes, so a
+    // plain window.print() would only capture the visible slice. Tag every
+    // ancestor up to <body> so the print stylesheet can unclip them.
+    const ancestors = [];
+    let node = root.parentElement;
+    while (node && node !== document.body) {
+      node.classList.add("print-ancestor");
+      ancestors.push(node);
+      node = node.parentElement;
+    }
+
+    const prevTitle = document.title;
+    const safeSubject =
+      (selectedEmail.subject || "email")
+        .replace(/[\\/:*?"<>|]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 120) || "email";
+    document.title = safeSubject;
+
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      document.title = prevTitle;
+      ancestors.forEach((n) => n.classList.remove("print-ancestor"));
+      window.removeEventListener("afterprint", cleanup);
+    };
+
+    window.addEventListener("afterprint", cleanup);
+    window.print();
+    // Safari doesn't always fire afterprint
+    setTimeout(cleanup, 1500);
   };
 
   const panelClass = `flex-1 flex flex-col bg-card overflow-hidden min-h-0 min-w-0 ${
@@ -214,14 +255,43 @@ export default function EmailDetail() {
   };
 
   return (
-    <div key={selectedEmail.id} className={`${panelClass} border-l border-border`}>
-      <div className="flex-1 overflow-y-auto min-h-0">
+    <div
+      key={selectedEmail.id}
+      id="email-print-root"
+      ref={printRootRef}
+      className={`${panelClass} border-l border-border`}
+    >
+      <div className="email-scroll flex-1 overflow-y-auto min-h-0">
+      <div className="email-print-header hidden px-4 md:px-6 pt-4">
+        <h1>{selectedEmail.subject || "(No Subject)"}</h1>
+        <p><strong>From:</strong> {selectedEmail.from_address}</p>
+        {selectedEmail.date && (
+          <p><strong>Date:</strong> {selectedEmail.date}</p>
+        )}
+        {selectedEmail.category_name && (
+          <p>
+            <strong>Category:</strong> {selectedEmail.category_name}
+            {selectedEmail.category_priority
+              ? ` · ${selectedEmail.category_priority} priority`
+              : ""}
+            {selectedEmail.confidence_score != null
+              ? ` · ${Math.round(selectedEmail.confidence_score * 100)}% confidence`
+              : ""}
+          </p>
+        )}
+        {(selectedEmail.has_reply || selectedEmail.replied_at) && (
+          <p><strong>Status:</strong> Reply already given</p>
+        )}
+        {selectedAccount?.email_address && (
+          <p><strong>Inbox:</strong> {selectedAccount.email_address}</p>
+        )}
+      </div>
       <div className="px-4 md:px-6 py-4 border-b border-border bg-card">
         <div className="flex items-start gap-3">
           <button
             type="button"
             onClick={() => setSelectedEmailId(null)}
-            className="md:hidden p-2 -ml-1 rounded-lg text-muted hover:text-ink hover:bg-surface shrink-0"
+            className="no-print md:hidden p-2 -ml-1 rounded-lg text-muted hover:text-ink hover:bg-surface shrink-0"
             aria-label="Back to inbox"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -250,7 +320,7 @@ export default function EmailDetail() {
                 type="button"
                 onClick={recategorize}
                 disabled={categorizing}
-                className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover font-medium"
+                className="no-print inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover font-medium"
               >
                 <Sparkles className="w-3 h-3" />
                 {categorizing ? "Re-categorizing..." : "Re-categorize"}
@@ -263,7 +333,7 @@ export default function EmailDetail() {
             {selectedEmail.date && (
               <p className="text-xs text-muted/70 mt-1">{selectedEmail.date}</p>
             )}
-            <div className="flex flex-wrap items-center gap-2 mt-3">
+            <div className="no-print flex flex-wrap items-center gap-2 mt-3">
               <button
                 type="button"
                 onClick={replyInGmail}
@@ -282,12 +352,21 @@ export default function EmailDetail() {
                 <CheckCircle2 className="w-4 h-4" />
                 {selectedEmail.is_done ? "Mark as open" : "Mark as done"}
               </button>
+              <button
+                type="button"
+                onClick={downloadPdf}
+                className="btn-secondary inline-flex items-center gap-1.5"
+                title="Save this email as a PDF"
+              >
+                <FileDown className="w-4 h-4" />
+                Download PDF
+              </button>
             </div>
           </div>
           <button
             type="button"
             onClick={() => setSelectedEmailId(null)}
-            className="hidden md:block p-2 rounded-lg text-muted hover:text-ink hover:bg-surface shrink-0"
+            className="no-print hidden md:block p-2 rounded-lg text-muted hover:text-ink hover:bg-surface shrink-0"
             aria-label="Close email"
           >
             <X className="w-5 h-5" />

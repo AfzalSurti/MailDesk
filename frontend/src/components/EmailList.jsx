@@ -33,7 +33,7 @@ function ListShell({
     <div
       ref={shellRef}
       style={isDesktop ? { width, flex: "0 0 auto" } : undefined}
-      className={`relative w-full border-r border-border bg-surface flex flex-col min-h-0 ${className}`}
+      className={`no-print relative w-full border-r border-border bg-surface flex flex-col min-h-0 ${className}`}
     >
       {children}
       <span
