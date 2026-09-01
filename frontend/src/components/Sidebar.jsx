@@ -1,4 +1,14 @@
-import { LogOut, Settings, Home, Inbox, X, Plus, RefreshCw } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  LogOut,
+  Settings,
+  Home,
+  Inbox,
+  X,
+  Plus,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import useStore, { isAccountSyncing, isAnyAccountSyncing } from "../store/useStore";
 import { Link, useNavigate } from "react-router-dom";
 import { getInitials } from "../utils/format";
@@ -68,6 +78,17 @@ export default function Sidebar({ open, onClose, onSettingsOpen, onSyncAccount }
   const user = useStore((s) => s.user);
   const anySyncing = useStore((s) => isAnyAccountSyncing(s));
   const navigate = useNavigate();
+  const [accountQuery, setAccountQuery] = useState("");
+
+  const filteredAccounts = useMemo(() => {
+    const q = accountQuery.trim().toLowerCase();
+    if (!q) return accounts;
+    return accounts.filter((a) =>
+      `${a.display_name || ""} ${a.email_address || ""}`
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [accounts, accountQuery]);
 
   const handleLogout = () => {
     if (!window.confirm("Are you sure you want to log out?")) {
@@ -116,9 +137,36 @@ export default function Sidebar({ open, onClose, onSettingsOpen, onSyncAccount }
             Gmail Accounts
           </p>
           <span className="text-[10px] font-medium text-white/30 bg-white/5 px-2 py-0.5 rounded-full">
-            {accounts.length}
+            {accountQuery
+              ? `${filteredAccounts.length}/${accounts.length}`
+              : accounts.length}
           </span>
         </div>
+
+        {accounts.length > 0 && (
+          <div className="px-5 mb-3">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+              <input
+                type="text"
+                value={accountQuery}
+                onChange={(e) => setAccountQuery(e.target.value)}
+                placeholder="Search name or email"
+                className="w-full pl-8 pr-7 py-1.5 text-xs rounded-lg bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+              {accountQuery && (
+                <button
+                  type="button"
+                  onClick={() => setAccountQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
+                  aria-label="Clear account search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {accounts.length === 0 ? (
           <div className="px-4">
@@ -134,9 +182,13 @@ export default function Sidebar({ open, onClose, onSettingsOpen, onSyncAccount }
               compact
             />
           </div>
+        ) : filteredAccounts.length === 0 ? (
+          <p className="px-5 text-xs text-white/40">
+            No accounts match “{accountQuery}”.
+          </p>
         ) : (
           <div className="space-y-1 px-3">
-            {accounts.map((acc) => (
+            {filteredAccounts.map((acc) => (
               <AccountRow
                 key={acc.id}
                 acc={acc}

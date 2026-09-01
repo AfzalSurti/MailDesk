@@ -215,7 +215,8 @@ export default function EmailDetail() {
 
   return (
     <div key={selectedEmail.id} className={`${panelClass} border-l border-border`}>
-      <div className="px-4 md:px-6 py-4 border-b border-border bg-card shrink-0">
+      <div className="flex-1 overflow-y-auto min-h-0">
+      <div className="px-4 md:px-6 py-4 border-b border-border bg-card">
         <div className="flex items-start gap-3">
           <button
             type="button"
@@ -294,7 +295,7 @@ export default function EmailDetail() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6">
+      <div className="px-4 md:px-8 py-6">
           <div className="max-w-3xl space-y-8">
             {htmlBody ? (
               <div
@@ -384,6 +385,7 @@ export default function EmailDetail() {
               )}
             </section>
           </div>
+      </div>
       </div>
     </div>
   );
