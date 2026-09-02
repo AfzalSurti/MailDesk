@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mail, Trash2, Pencil, X, Check } from "lucide-react";
+import { Mail, Trash2, Pencil, X, Check, ExternalLink } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../lib/axios";
 import useStore from "../store/useStore";
@@ -112,10 +112,75 @@ export default function SettingsModal({ onClose }) {
       <div className="space-y-8">
         <section>
           <h3 className="text-sm font-semibold text-ink mb-1">Add Gmail Account</h3>
-          <p className="text-xs text-muted mb-4 leading-relaxed">
-            Use a Google App Password (not your regular Gmail password). Enable 2FA first,
-            then create one under Google Account → Security → App passwords.
+          <p className="text-xs text-muted mb-3 leading-relaxed">
+            Gmail needs a <strong>16-character App Password</strong> — not your normal
+            Gmail password. Here's how to get one:
           </p>
+
+          <details
+            open
+            className="mb-4 rounded-lg border border-border bg-surface/60 p-3"
+          >
+            <summary className="cursor-pointer select-none text-xs font-medium text-ink">
+              Step-by-step: connect your Gmail
+            </summary>
+            <ol className="mt-3 space-y-2 list-decimal pl-4 text-xs text-muted leading-relaxed">
+              <li>
+                Sign in to the Gmail you want to connect, then open{" "}
+                <a
+                  href="https://myaccount.google.com/security"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent underline inline-flex items-center gap-0.5"
+                >
+                  Google Account → Security
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+                .
+              </li>
+              <li>
+                Turn on{" "}
+                <a
+                  href="https://myaccount.google.com/signinoptions/twosv"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent underline inline-flex items-center gap-0.5"
+                >
+                  2-Step Verification
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+                . App passwords only appear after this is enabled.
+              </li>
+              <li>
+                Open{" "}
+                <a
+                  href="https://myaccount.google.com/apppasswords"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent underline inline-flex items-center gap-0.5"
+                >
+                  App passwords
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+                .
+              </li>
+              <li>
+                Type a name like <strong>MailDesk</strong> and click{" "}
+                <strong>Create</strong>. Google shows a 16-character password
+                (4 blocks of 4).
+              </li>
+              <li>
+                Copy it, remove the spaces, and paste it into{" "}
+                <strong>App password</strong> below with your Gmail address. Then
+                click <strong>Connect Account</strong>.
+              </li>
+            </ol>
+            <p className="mt-2 text-[11px] text-muted">
+              Don't see “App passwords”? Confirm 2-Step Verification is on. Some
+              Google Workspace accounts need an admin to allow app passwords.
+            </p>
+          </details>
+
           <form onSubmit={addAccount} className="space-y-3">
             <div>
               <label className="field-label">Email address</label>
