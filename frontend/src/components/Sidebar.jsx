@@ -233,6 +233,31 @@ export default function Sidebar({ open, onClose, onSettingsOpen, onSyncAccount }
           <LogOut className="w-4 h-4" />
           Logout
         </button>
+
+        <div className="px-3 pt-3 mt-1 border-t border-white/10 text-[10px] leading-relaxed text-white/35">
+          <p>
+            Developed by{" "}
+            <a
+              href="https://www.linkedin.com/in/afzal-surti-9904b2287/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white/60 hover:text-white transition-colors"
+            >
+              Afzal N. Surti
+            </a>
+          </p>
+          <p>
+            Powered by{" "}
+            <a
+              href="https://geogroup.in/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white/60 hover:text-white transition-colors"
+            >
+              Geo Designs and Research Pvt. Ltd.
+            </a>
+          </p>
+        </div>
       </div>
     </aside>
   );
