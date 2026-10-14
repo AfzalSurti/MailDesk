@@ -11,6 +11,10 @@ import useStore, {
 const JOB_POLL_MS = 600;
 const JOB_TIMEOUT_MS = 10 * 60 * 1000;
 const LIVE_REFRESH_MS = 800;
+// How many accounts "Sync All" fetches/categorizes at once. Each sync is
+// IMAP/OpenRouter-bound (idle wait, not CPU), and accounts don't share any
+// state, so running several in parallel is safe — see syncAllAccounts.
+const SYNC_ALL_CONCURRENCY = 4;
 
 async function waitForJob(jobId, onProgress) {
   const started = Date.now();
@@ -113,18 +117,24 @@ export function useDashboardData() {
   }, [setAccounts, setSelectedAccount, setEmailsForAccount, setEmailsLoading]);
 
   const runAccountSync = useCallback(
-    async (account, { current = 1, total = 1 } = {}) => {
+    async (account, { current = 1, total = 1, bulk = false } = {}) => {
       const accountId = account.id;
-      setSelectedAccount(account);
-      setSyncProgress({
-        current,
-        total,
-        email: account.email_address,
-        phase: "starting",
-        done: 0,
-        jobTotal: 0,
-        saved: 0,
-      });
+      // In bulk mode several accounts sync concurrently, so the selected
+      // account and the single detailed progress banner must stay owned by
+      // whichever account the user actually has open — not get stolen by
+      // every account racing through this function at once.
+      if (!bulk) {
+        setSelectedAccount(account);
+        setSyncProgress({
+          current,
+          total,
+          email: account.email_address,
+          phase: "starting",
+          done: 0,
+          jobTotal: 0,
+          saved: 0,
+        });
+      }
       setAccountSyncing(accountId, true);
 
       // Show this account's current inbox immediately (fixes blank 2nd/3rd accounts)
@@ -180,15 +190,17 @@ export function useDashboardData() {
       try {
         const { data: queued } = await api.post(`/emails/${accountId}/sync`);
         const job = await waitForJob(queued.job_id, (result) => {
-          setSyncProgress({
-            current,
-            total,
-            email: account.email_address,
-            phase: result.phase || "fetching",
-            done: result.done ?? 0,
-            jobTotal: result.total ?? 0,
-            saved: result.saved ?? 0,
-          });
+          if (!bulk) {
+            setSyncProgress({
+              current,
+              total,
+              email: account.email_address,
+              phase: result.phase || "fetching",
+              done: result.done ?? 0,
+              jobTotal: result.total ?? 0,
+              saved: result.saved ?? 0,
+            });
+          }
           maybeLiveRefresh(result);
         });
         await refreshEmails(accountId, { silent: true });
@@ -277,7 +289,17 @@ export function useDashboardData() {
     [runAccountSync, setSyncProgress]
   );
 
-  /** Sync every Gmail account, one after another. */
+  /**
+   * Sync every Gmail account, several at a time.
+   *
+   * Each account sync is mostly spent waiting on Gmail IMAP / OpenRouter —
+   * running them one after another (the old behavior) meant 60 accounts at
+   * ~90s each took well over an hour. Accounts don't share IMAP connections
+   * or any per-account state, so a handful can safely run in parallel; this
+   * keeps the DB pool (5 + 10 overflow) and OpenRouter client comfortably
+   * under their limits while cutting wall-clock time roughly proportional
+   * to SYNC_ALL_CONCURRENCY.
+   */
   const syncAllAccounts = useCallback(async () => {
     const accounts = useStore.getState().accounts || [];
     if (!accounts.length) {
@@ -286,17 +308,26 @@ export function useDashboardData() {
     }
     if (isAnyAccountSyncing(useStore.getState())) return;
 
+    const total = accounts.length;
+    let completed = 0;
     let synced = 0;
     let failed = 0;
     let newEmails = 0;
 
-    try {
-      for (let i = 0; i < accounts.length; i++) {
-        const account = accounts[i];
+    setSyncProgress({ current: 0, total, mode: "bulk_all" });
+
+    let nextIndex = 0;
+    const runNext = async () => {
+      while (nextIndex < accounts.length) {
+        const account = accounts[nextIndex];
+        nextIndex += 1;
         const result = await runAccountSync(account, {
-          current: i + 1,
-          total: accounts.length,
+          current: completed + 1,
+          total,
+          bulk: true,
         });
+        completed += 1;
+        setSyncProgress({ current: completed, total, mode: "bulk_all" });
         if (result.ok) {
           synced += 1;
           newEmails += result.newCount;
@@ -310,6 +341,11 @@ export function useDashboardData() {
           toast.error(`${account.email_address}: ${result.error}`);
         }
       }
+    };
+
+    try {
+      const workerCount = Math.min(SYNC_ALL_CONCURRENCY, accounts.length);
+      await Promise.all(Array.from({ length: workerCount }, runNext));
 
       if (failed === 0) {
         toast.success(

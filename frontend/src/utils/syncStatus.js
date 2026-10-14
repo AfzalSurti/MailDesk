@@ -2,6 +2,10 @@
 export function formatSyncStatus(syncProgress, { recategorizing = false } = {}) {
   if (!syncProgress && !recategorizing) return null;
 
+  if (syncProgress?.mode === "bulk_all") {
+    return `Synced ${syncProgress.current}/${syncProgress.total} accounts…`;
+  }
+
   const phase = syncProgress?.phase;
   const done = Number(syncProgress?.done) || 0;
   const jobTotal = Number(syncProgress?.jobTotal) || 0;
