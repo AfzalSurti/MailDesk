@@ -2,6 +2,10 @@ import axios from "axios";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL,
+  // Without this, a stalled Gmail IMAP call or dropped connection leaves
+  // the request pending forever and the UI (e.g. the attachments spinner)
+  // never recovers.
+  timeout: 60000,
 });
 
 // Attach token to every request

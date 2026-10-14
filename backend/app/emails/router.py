@@ -301,6 +301,8 @@ async def download_attachment_endpoint(
         lower = err.lower()
         if "authentication" in lower or "invalid credentials" in lower or "login" in lower:
             detail = "Gmail login failed for attachments. Re-check the account app password."
+        elif "timed out" in lower or "timeout" in lower:
+            detail = "Gmail IMAP timed out while downloading the attachment. Try again."
         else:
             detail = f"Could not download attachment: {err}"
         raise HTTPException(

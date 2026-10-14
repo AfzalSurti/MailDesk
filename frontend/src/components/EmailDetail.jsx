@@ -38,6 +38,8 @@ export default function EmailDetail() {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [attachments, setAttachments] = useState([]);
   const [loadingAttachments, setLoadingAttachments] = useState(false);
+  const [attachmentsError, setAttachmentsError] = useState(null);
+  const [attachmentsRetry, setAttachmentsRetry] = useState(0);
   const [downloadingPart, setDownloadingPart] = useState(null);
   const printRootRef = useRef(null);
 
@@ -50,19 +52,29 @@ export default function EmailDetail() {
   useEffect(() => {
     if (!selectedAccount?.id || !selectedEmailId) {
       setAttachments([]);
+      setAttachmentsError(null);
       return;
     }
     let cancelled = false;
     const loadAttachments = async () => {
       setLoadingAttachments(true);
       setAttachments([]);
+      setAttachmentsError(null);
       try {
         const { data } = await api.get(
           `/emails/${selectedAccount.id}/${selectedEmailId}/attachments`
         );
         if (!cancelled) setAttachments(data || []);
-      } catch {
-        if (!cancelled) setAttachments([]);
+      } catch (err) {
+        if (!cancelled) {
+          setAttachments([]);
+          setAttachmentsError(
+            err.response?.data?.detail ||
+              (err.code === "ECONNABORTED"
+                ? "Gmail IMAP timed out while loading attachments. Try again."
+                : "Failed to load attachments")
+          );
+        }
       } finally {
         if (!cancelled) setLoadingAttachments(false);
       }
@@ -71,7 +83,7 @@ export default function EmailDetail() {
     return () => {
       cancelled = true;
     };
-  }, [selectedAccount?.id, selectedEmailId]);
+  }, [selectedAccount?.id, selectedEmailId, attachmentsRetry]);
 
   const downloadAttachment = async (partIndex, filename) => {
     if (!selectedAccount?.id || !selectedEmailId) return;
@@ -89,8 +101,12 @@ export default function EmailDetail() {
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-    } catch {
-      toast.error("Failed to download attachment");
+    } catch (err) {
+      if (err.code === "ECONNABORTED") {
+        toast.error("Gmail IMAP timed out while downloading the attachment. Try again.");
+      } else {
+        toast.error("Failed to download attachment");
+      }
     } finally {
       setDownloadingPart(null);
     }
@@ -427,7 +443,19 @@ export default function EmailDetail() {
                   <RefreshCw className="w-3.5 h-3.5 animate-spin text-muted" />
                 )}
               </div>
-              {!loadingAttachments && attachments.length === 0 ? (
+              {!loadingAttachments && attachmentsError ? (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                  <p className="text-xs text-red-700">{attachmentsError}</p>
+                  <button
+                    type="button"
+                    onClick={() => setAttachmentsRetry((n) => n + 1)}
+                    className="btn-secondary inline-flex items-center gap-1.5 text-xs shrink-0"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Retry
+                  </button>
+                </div>
+              ) : !loadingAttachments && attachments.length === 0 ? (
                 <p className="text-xs text-muted">No attachments</p>
               ) : (
                 <ul className="space-y-2">

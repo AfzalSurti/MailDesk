@@ -8,6 +8,12 @@ from datetime import datetime, timedelta
 from typing import Dict, Iterator, List, Tuple
 from app.accounts.service import decrypt_password
 
+# Without this, a stalled/throttled Gmail connection blocks the calling
+# thread forever (no OS-level timeout kicks in on its own) - every sync or
+# attachment request on that account would hang indefinitely instead of
+# failing fast with a retryable error.
+IMAP_TIMEOUT_SECONDS = 30
+
 
 class _HTMLToText(HTMLParser):
     """Convert HTML to readable plain text while preserving paragraph breaks."""
@@ -170,7 +176,7 @@ def iter_fetch_emails(
     """
     app_password = decrypt_password(encrypted_password)
 
-    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=IMAP_TIMEOUT_SECONDS)
     mail.login(email_address, app_password)
     mail.select("INBOX")
 
@@ -268,7 +274,7 @@ def _raw_from_fetch(msg_data) -> bytes | None:
 
 def _imap_login(email_address: str, encrypted_password: str) -> imaplib.IMAP4_SSL:
     app_password = decrypt_password(encrypted_password)
-    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=IMAP_TIMEOUT_SECONDS)
     mail.login(email_address, app_password)
     status, _ = mail.select("INBOX")
     if status != "OK":
@@ -424,7 +430,7 @@ def fetch_sent_replies(
 ) -> List[Dict]:
     """Fetch recent Sent Mail replies within the same day window — not the whole mailbox."""
     app_password = decrypt_password(encrypted_password)
-    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=IMAP_TIMEOUT_SECONDS)
     mail.login(email_address, app_password)
 
     if not _select_sent_mailbox(mail):
@@ -489,7 +495,7 @@ def fetch_emails(
 def delete_email(email_address: str, encrypted_password: str, uid: str) -> bool:
     try:
         app_password = decrypt_password(encrypted_password)
-        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=IMAP_TIMEOUT_SECONDS)
         mail.login(email_address, app_password)
         mail.select("INBOX")
 
