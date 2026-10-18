@@ -33,10 +33,11 @@ postgresql+asyncpg://USER:PASSWORD@HOST/DBNAME?sslmode=require
 ## 2. Generate secrets
 
 ```bash
-python -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32)); print('ENCRYPTION_KEY=' + secrets.token_urlsafe(32))"
+python -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(32))"
+python -c "from cryptography.fernet import Fernet; print('ENCRYPTION_KEY=' + Fernet.generate_key().decode())"
 ```
 
-Save both. **Never change `ENCRYPTION_KEY` after Gmail passwords are saved** — you would have to re-add the Gmail account.
+`ENCRYPTION_KEY` must be a Fernet key (32 url-safe base64 bytes); any other string makes the backend fail on startup. Save both. **Never change `ENCRYPTION_KEY` after Gmail passwords are saved** — you would have to re-add the Gmail account.
 
 ---
 
@@ -129,7 +130,7 @@ If you add a custom domain on Vercel later, update `FRONTEND_URL` on Render to m
 ## 7. Verify
 
 1. Open your Vercel URL → landing page loads.
-2. Log in: `admin@company.com` / `admin123`.
+2. Sign up for an account (or, if the database was created from `init.sql`, log in with the seeded admin from that file and change its password immediately).
 3. **Settings** → add Gmail + [App Password](https://myaccount.google.com/apppasswords).
 4. **Fetch** → emails sync.
 
